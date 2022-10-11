@@ -2,8 +2,6 @@
 #include <fmt/compile.h>
 #include <fmt/color.h>
 
-#include <sys/random.h>
-
 #include <random>
 #include <array>
 
@@ -18,12 +16,12 @@ concept arithmetic = std::floating_point<T> || std::integral<T>;
 {
   std::array<std::mt19937::result_type, std::mt19937::state_size> seeds;
 
-  auto it = seeds.begin();
+  std::random_device rd;
 
-  auto result = getrandom(&(*it), seeds.end() - it, 0);
+  std::uniform_int_distribution<std::mt19937::result_type> dist{};
 
-  if (result == -1)
-    fmt::print("getrandom failed, returned {}\n", result);
+  for (auto& seed : seeds)
+    seed = dist(rd);
 
   return std::seed_seq(seeds.begin(), seeds.end());
 }

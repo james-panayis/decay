@@ -4,9 +4,11 @@
 
 rm -rf fmt
 
-# git clone https://github.com/fmtlib/fmt.git
+if [[ "${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
+	module load GCCcore/11.2.0 CMake/3.22.1
+fi
 
-git clone ssh://[46.101.54.164]:/data/external-git/fmt
+git clone https://github.com/fmtlib/fmt.git
 
 pushd fmt
 

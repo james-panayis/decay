@@ -144,15 +144,29 @@ int main()
   fmt::print("momentum of decay products in B frame: {}  speed of K: {}  speed of pi: {}\n", p_mag, v_mag_K, v_mag_pi);
   fmt::print("speed of B0 in reference frame of detector: {}\n", d_v_mag_B);
 
+  // gamma of B in detector's frame
+  constexpr double d_g_B = 1.0 / std::sqrt(1.0 - pow<2>(d_v_mag_B/c));
+
+  // lifetime of B meson in each reference frame
+  constexpr double B_lifetime{0.000000000001519};
+  constexpr double d_B_lifetime{B_lifetime * d_g_B};
+
+  // distance travelled by B meson before decaying in detector's frame
+  constexpr double d_d_B{d_B_lifetime * d_v_mag_B};
+
+  fmt::print("average distance travelled by B meson in detector's frame: {}\n\n", d_d_B);
+
+  int back_count = 0;
+
   double average_d_p_mag_K {0};
   double average_d_pt_K    {0};
   double average_d_p_mag_pi{0};
   double average_d_pt_pi   {0};
-  //std::array<double, 3> average_p_pi{0, 0, 0};
 
-  constexpr int repeats = 10'000'000;
+  double average_impact_parameter_K {0};
+  double average_impact_parameter_pi{0};
 
-  int back_count = 0;
+  constexpr int repeats = 100'000'000;
 
   for (int i = 0; i < repeats; ++i)
   {
@@ -183,16 +197,22 @@ int main()
     const double d_g_K  = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_K) /c));
     const double d_g_pi = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_pi)/c));
 
-    const std::array<double, 3> d_p_K  = d_g_K  * m_K  * d_v_K;
-    const std::array<double, 3> d_p_pi = d_g_pi * m_pi * d_v_pi;
+    const std::array<double, 3> d_p_K  = (d_g_K  * m_K ) * d_v_K;
+    const std::array<double, 3> d_p_pi = (d_g_pi * m_pi) * d_v_pi;
 
     average_d_p_mag_K  += mag(d_p_K);
     average_d_pt_K     += std::sqrt(pow<2>(d_p_K [0]) + pow<2>(d_p_K [1]));
     average_d_p_mag_pi += mag(d_p_pi);
     average_d_pt_pi    += std::sqrt(pow<2>(d_p_pi[0]) + pow<2>(d_p_pi[1]));
 
+    // angle between B meson path and kaon path
+    //const double alpha = std::acos(d_v_K[2] / mag(d_v_K));
 
-    if (i < 100)//(d_v_pi[2] < 0.0)
+    //average_impact_parameter += d_d_B * std::sin(alpha);
+    average_impact_parameter_K  += d_d_B * std::sqrt(pow<2>(d_v_K [0]) + pow<2>(d_v_K [1])) / mag(d_v_K);
+    average_impact_parameter_pi += d_d_B * std::sqrt(pow<2>(d_v_pi[0]) + pow<2>(d_v_pi[1])) / mag(d_v_pi);
+
+    if (i < 40)
     {
       fmt::print("gamma: {}\n", d_g_K);
       fmt::print("d_v_K:  {},   mag: {}\n", d_v_K , mag(d_v_K ));
@@ -204,17 +224,21 @@ int main()
 
   fmt::print("\n");
 
-  average_d_p_mag_K  *= 1.0 / static_cast<double>(repeats);
-  average_d_pt_K     *= 1.0 / static_cast<double>(repeats);
-  average_d_p_mag_pi *= 1.0 / static_cast<double>(repeats);
-  average_d_pt_pi    *= 1.0 / static_cast<double>(repeats);
+  average_d_p_mag_K           *= 1.0 / static_cast<double>(repeats);
+  average_d_pt_K              *= 1.0 / static_cast<double>(repeats);
+  average_d_p_mag_pi          *= 1.0 / static_cast<double>(repeats);
+  average_d_pt_pi             *= 1.0 / static_cast<double>(repeats);
+  average_impact_parameter_K  *= 1.0 / static_cast<double>(repeats);
+  average_impact_parameter_pi *= 1.0 / static_cast<double>(repeats);
 
   fmt::print("average_d_pt_pi   : {}\n", average_d_pt_pi/pow<6>(10)/c);
   fmt::print("average_d_pt_K    : {}\n", average_d_pt_K /pow<6>(10)/c);
   fmt::print("average_d_p_mag_pi: {}\n", average_d_p_mag_pi/pow<6>(10)/c);
   fmt::print("average_d_p_mag_K : {}\n", average_d_p_mag_K /pow<6>(10)/c);
 
-  fmt::print("fraction going backwards: {}\n", static_cast<double>(back_count)/static_cast<double>(repeats));
+  fmt::print("\naverage impact parameter for K: {},  for pi: {}\n", average_impact_parameter_K, average_impact_parameter_pi);
+
+  fmt::print("\nfraction going backwards: {}\n", static_cast<double>(back_count)/static_cast<double>(repeats));
 
   return EXIT_SUCCESS;
 }

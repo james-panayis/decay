@@ -1,6 +1,6 @@
 import ROOT
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 import math
 import random
 
@@ -47,6 +47,8 @@ B_dist = B_ml_df * B0V
 #print(B_dist)
 
 
+finaldata = pd.DataFrame({"PiU":[],"KU":[],"PiUT":[],"KUT":[],"PiP":[], "KP":[], "PiPT":[], "KPT":[], "Pid":[], "Kd":[]})
+
 i=0
 PiPT = 0
 KPT = 0
@@ -54,14 +56,16 @@ PiPav = 0
 KPav = 0
 Pid = 0
 Kd = 0
-count = 1000000
+maxPid = 0
+maxKd = 0 
+count = 1000
 
 while(i<count):
 
     #Random distribution from a Gaussian for positions on a sphere
-    ranx = numpy.random.normal(0)
-    rany = numpy.random.normal(0)
-    ranz = numpy.random.normal(0)
+    ranx = np.random.normal(0)
+    rany = np.random.normal(0)
+    ranz = np.random.normal(0)
 
     Pixv = (ranx / math.sqrt(ranx**2 + rany**2 +ranz**2))*PiV
     Piyv = (rany / math.sqrt(ranx**2 + rany**2 +ranz**2))*PiV
@@ -75,8 +79,6 @@ while(i<count):
     #print("MOD: ", math.sqrt(Pixv**2 + Piyv**2 + Pizv**2))
     #print(Kxv, Kyv, Kzv)
     #print("MOD: ", math.sqrt(Kxv**2 + Kyv**2 + Kzv**2))
-
-
     #Making Meson Velocities
     Pixu = (math.sqrt(1- B0V**2/c**2)*Pixv)/(1+(B0V/c**2)*Pizv)
     Piyu = (math.sqrt(1- B0V**2/c**2)*Piyv)/(1+(B0V/c**2)*Pizv)
@@ -90,14 +92,13 @@ while(i<count):
     #print("Pi: ", Pixu, Piyu, Pizu, " Mag: ", math.sqrt(Pixu**2+Piyu**2+Pizu**2))
     #print("K: ", Kxu, Kyu, Kzu, " Mag: ", math.sqrt(Kxu**2+Kyu**2+Kzu**2))
 
-    #Transverse and average momentum
+    #Transverse and average velocity
     PiuT = math.sqrt(Pixu**2 + Piyu**2)
     KuT = math.sqrt(Kxu**2 + Kyu**2)
 
     Piu = math.sqrt(Pixu**2 + Piyu**2 + Pizu**2)
     Ku = math.sqrt(Kxu**2 + Kyu**2 + Kzu**2)
 
-    #Creating momentum in each axis
     PiPav += 1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*Piu
     PiPT += 1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*PiuT
 
@@ -107,7 +108,17 @@ while(i<count):
     #Impact Param calculation
     Pid += B_dist * math.sqrt(Pixu**2 + Piyu**2)/ math.sqrt(Pixu**2 + Piyu**2 + Pizu**2)
     Kd += B_dist * math.sqrt(Kxu**2 + Kyu**2)/ math.sqrt(Kxu**2 + Kyu**2 + Kzu**2)
+    if maxPid < B_dist * math.sqrt(Pixu**2 + Piyu**2)/ math.sqrt(Pixu**2 + Piyu**2 + Pizu**2):
+        maxPid = B_dist * math.sqrt(Pixu**2 + Piyu**2)/ math.sqrt(Pixu**2 + Piyu**2 + Pizu**2)
+
+    if maxKd < B_dist * math.sqrt(Kxu**2 + Kyu**2)/ math.sqrt(Kxu**2 + Kyu**2 + Kzu**2):
+        maxKd = B_dist * math.sqrt(Kxu**2 + Kyu**2)/ math.sqrt(Kxu**2 + Kyu**2 + Kzu**2)
+
+
+    tempdata = pd.DataFrame({"PiU":[Piu],"KU":[Ku],"PiUT":[PiuT],"KUT":[KuT],"PiP":[1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*Piu], "KP":[1/(math.sqrt(1-(Ku**2/c**2)))*K["m"][0]*Ku], "PiPT":[1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*PiuT], "KPT":[1/(math.sqrt(1-(Ku**2/c**2)))*K["m"][0]*KuT], "Pid":[B_dist * math.sqrt(Pixu**2 + Piyu**2)/ math.sqrt(Pixu**2 + Piyu**2 + Pizu**2)], "Kd":[B_dist * math.sqrt(Kxu**2 + Kyu**2)/ math.sqrt(Kxu**2 + Kyu**2 + Kzu**2)]})
  
+    finaldata = finaldata.append(tempdata)
+
     i+=1
 
 #Average PT and P
@@ -127,4 +138,16 @@ Kdav = Kd/count
 print("Pi impact param av: ", Pidav)
 print("K impact param av: ", Kdav)
 
+print("Max Pi Impact param: ", maxPid)
+print("Max K Impact param: ", maxKd)
 
+
+finaldatadict = finaldata.to_dict("list")
+finaldatadict = {
+    key: np.array(finaldatadict[key])
+    for key in finaldatadict.keys()
+}
+
+finalrootdf = ROOT.RDF.MakeNumpyDataFrame(finaldatadict)
+
+finalrootdf.Snapshot('tree', f'cache/simulation_task_data.root')

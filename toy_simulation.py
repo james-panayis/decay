@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import math
 import random
-
+from simulation_plotting import makeHist
 c = 299792458
 
 B0 = {
@@ -58,7 +58,7 @@ Pid = 0
 Kd = 0
 maxPid = 0
 maxKd = 0 
-count = 1000
+count = 100000
 
 while(i<count):
 
@@ -118,7 +118,7 @@ while(i<count):
     tempdata = pd.DataFrame({"PiU":[Piu],"KU":[Ku],"PiUT":[PiuT],"KUT":[KuT],"PiP":[1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*Piu], "KP":[1/(math.sqrt(1-(Ku**2/c**2)))*K["m"][0]*Ku], "PiPT":[1/(math.sqrt(1-(Piu**2/c**2)))*Pi["m"][0]*PiuT], "KPT":[1/(math.sqrt(1-(Ku**2/c**2)))*K["m"][0]*KuT], "Pid":[B_dist * math.sqrt(Pixu**2 + Piyu**2)/ math.sqrt(Pixu**2 + Piyu**2 + Pizu**2)], "Kd":[B_dist * math.sqrt(Kxu**2 + Kyu**2)/ math.sqrt(Kxu**2 + Kyu**2 + Kzu**2)]})
  
     finaldata = finaldata.append(tempdata)
-
+    print(i)
     i+=1
 
 #Average PT and P
@@ -151,3 +151,7 @@ finaldatadict = {
 finalrootdf = ROOT.RDF.MakeNumpyDataFrame(finaldatadict)
 
 finalrootdf.Snapshot('tree', f'cache/simulation_task_data.root')
+
+variables = ["U", "UT", "P", "PT", "d"]
+for var in variables:
+    makeHist(var, 'cache/simulation_task_data.root', var, 1000)

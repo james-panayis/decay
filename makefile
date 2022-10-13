@@ -6,9 +6,9 @@ CC=g++
 
 .PHONY: all
 
-all: test
+all: cache/test
 
-test: makefile simulation.cpp external/fmt
+cache/test: makefile simulation.cpp external/fmt
 	@
 	if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
 		module is-loaded GCC/11.2.0

@@ -4,6 +4,7 @@
 
 #include <random>
 #include <array>
+#include <fstream>
 
 
 template<class T>
@@ -285,6 +286,23 @@ int main()
   fmt::print("\nimpact_parameter_pi:\n");
   for (int i = 0; i < bucket_count; ++i)
     fmt::print("{:<8.8} to {:<8.8}:   {}\n", bs_hist_impact_parameter_pi * i, bs_hist_impact_parameter_pi * (i + 1), hist_impact_parameter_pi[i]);
+
+  std::ofstream out;
+
+  out.open("out.csv");
+
+  //for (const std::array histograms{hist_d_p_mag_K, hist_d_p_mag_pi, hist_d_pt_K, hist_d_pt_pi, hist_impact_parameter_K, hist_impact_parameter_pi}; const auto& histogram : histograms)
+  const std::array histograms{hist_d_p_mag_K, hist_d_p_mag_pi, hist_d_pt_K, hist_d_pt_pi, hist_impact_parameter_K, hist_impact_parameter_pi};
+
+  for (int i = 0; i < bucket_count; ++i)
+  {
+    for (int j = 0; j < std::ssize(histograms); ++j)
+      out << fmt::format("{},", histograms[j][i]);
+
+    out << "\n";
+  }
+  
+  out.close();
 
   return EXIT_SUCCESS;
 }

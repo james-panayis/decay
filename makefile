@@ -18,7 +18,7 @@ test: makefile simulation.cpp external/fmt
 		fi
 	fi
 	echo "compiling"
-	$(CC) -O3 -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o test
+	$(CC) -O3 -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o cache/test
 
 debug: makefile simulation.cpp external/fmt
 	@
@@ -30,10 +30,10 @@ debug: makefile simulation.cpp external/fmt
 		fi
 	fi
 	echo "compiling"
-	$(CC) -g -fsanitize=address,undefined -static-libasan -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o test
+	$(CC) -g -fsanitize=address,undefined -static-libasan -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o cache/test
 
 run: makefile all
-	./test
+	./cache/test
 
 external/fmt: makefile external/get-fmt.sh
 	pushd external > /dev/null
@@ -41,4 +41,4 @@ external/fmt: makefile external/get-fmt.sh
 	popd > /dev/null
 
 clean: makefile
-	rm test
+	rm cache/test

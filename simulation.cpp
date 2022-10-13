@@ -312,7 +312,7 @@ int main()
 
   std::ofstream out;
 
-  out.open("out.csv");
+  out.open("cache/out.csv");
 
   //for (const std::array histograms{hist_d_p_mag_K, hist_d_p_mag_pi, hist_d_pt_K, hist_d_pt_pi, hist_impact_parameter_K, hist_impact_parameter_pi}; const auto& histogram : histograms)
   const std::array histograms{hist_d_p_mag_K, hist_d_p_mag_pi, hist_d_pt_K, hist_d_pt_pi, hist_impact_parameter_K, hist_impact_parameter_pi};

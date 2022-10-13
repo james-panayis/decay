@@ -4,6 +4,9 @@
 
 #include <random>
 #include <array>
+#include <thread>
+#include <atomic>
+#include <iostream>
 #include <fstream>
 
 
@@ -157,7 +160,7 @@ int main()
 
   int back_count = 0;
 
-  constexpr int bucket_count = 10;
+  constexpr int bucket_count = 1000;
 
   constexpr double bs_hist_d_p_mag_K {60000.0 / double{bucket_count}};
   constexpr double bs_hist_d_p_mag_pi{60000.0 / double{bucket_count}};
@@ -179,73 +182,91 @@ int main()
   double average_impact_parameter_K {0};
   double average_impact_parameter_pi{0};
 
-  constexpr int repeats = 10'000'000;
+  std::atomic_bool finish{false};
 
-  for (int i = 0; i < repeats; ++i)
+  std::int64_t repeats = 0;
+
+  auto loop = [&]
   {
-    // angle of kaon motion in B meson's reference frame
-    const double phi   =           std::uniform_real_distribution<double>{0.0 , 2.0 * std::numbers::pi}(prng_);
-    const double theta = std::acos(std::uniform_real_distribution<double>{-1.0, 1.0                   }(prng_));
-
-    // unscaled velocity of kaon motion in B meson's reference frame
-    const std::array<double, 3> v_temp{std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};
-
-    // velocities of decay products in B meson's reference frame in d
-    const std::array<double, 3> v_K { v_mag_K  * v_temp};
-    const std::array<double, 3> v_pi{-v_mag_pi * v_temp};
-
-    //fmt::print("zero?: {}\n\n", (std::sqrt(pow<2>(p_mag*c) + pow<2>(m_pi)*pow<4>(c)) + std::sqrt(pow<2>(p_mag*c) + pow<2>(m_K)*pow<4>(c))) / pow<2>(c));
-
-    const double v = d_v_mag_B;
-
-    // velocities of decay products in detector's reference frame in c
-    const std::array<double, 3> d_v_K {std::sqrt(1 - pow<2>(v/c)) * v_K [0] / (1 + v/pow<2>(c) * v_K [2]),
-                                       std::sqrt(1 - pow<2>(v/c)) * v_K [1] / (1 + v/pow<2>(c) * v_K [2]),
-                                       (v_K[2] + v)                         / (1 + v/pow<2>(c) * v_K [2]) };
-
-    const std::array<double, 3> d_v_pi{std::sqrt(1 - pow<2>(v/c)) * v_pi[0] / (1 + v/pow<2>(c) * v_pi[2]),
-                                       std::sqrt(1 - pow<2>(v/c)) * v_pi[1] / (1 + v/pow<2>(c) * v_pi[2]),
-                                       (v_pi[2] + v)                        / (1 + v/pow<2>(c) * v_pi[2]) };
-
-    const double d_g_K  = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_K) /c));
-    const double d_g_pi = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_pi)/c));
-
-    const std::array<double, 3> d_p_K  = (d_g_K  * m_K ) * d_v_K;
-    const std::array<double, 3> d_p_pi = (d_g_pi * m_pi) * d_v_pi;
-
-    const double d_p_mag_K  = mag(d_p_K);
-    const double d_p_mag_pi = mag(d_p_pi);
-    const double d_pt_K     = std::sqrt(pow<2>(d_p_K [0]) + pow<2>(d_p_K [1]));
-    const double d_pt_pi    = std::sqrt(pow<2>(d_p_pi[0]) + pow<2>(d_p_pi[1]));
-
-    average_d_p_mag_K  += d_p_mag_K;
-    average_d_p_mag_pi += d_p_mag_pi;
-    average_d_pt_K     += d_pt_K;
-    average_d_pt_pi    += d_pt_pi;
-
-    ++hist_d_p_mag_K [static_cast<std::size_t>(d_p_mag_K  / (bs_hist_d_p_mag_K * c * pow<6>(10)))];
-    ++hist_d_p_mag_pi[static_cast<std::size_t>(d_p_mag_pi / (bs_hist_d_p_mag_pi * c * pow<6>(10)))];
-    ++hist_d_pt_K    [static_cast<std::size_t>(d_pt_K     / (bs_hist_d_pt_K * c * pow<6>(10)))];
-    ++hist_d_pt_pi   [static_cast<std::size_t>(d_pt_pi    / (bs_hist_d_pt_pi * c * pow<6>(10)))];
-
-    const double impact_parameter_K  = d_d_B * std::sqrt(pow<2>(d_v_K [0]) + pow<2>(d_v_K [1])) / mag(d_v_K);
-    const double impact_parameter_pi = d_d_B * std::sqrt(pow<2>(d_v_pi[0]) + pow<2>(d_v_pi[1])) / mag(d_v_pi);
-
-    average_impact_parameter_K  += impact_parameter_K;
-    average_impact_parameter_pi += impact_parameter_pi;
-
-    ++hist_impact_parameter_K [static_cast<std::size_t>(impact_parameter_K  / bs_hist_impact_parameter_K)];
-    ++hist_impact_parameter_pi[static_cast<std::size_t>(impact_parameter_pi / bs_hist_impact_parameter_pi)];
-
-    /*if (i < 40)
+    while (!finish)
     {
-      fmt::print("gamma: {}\n", d_g_K);
-      fmt::print("d_v_K:  {},   mag: {}\n", d_v_K , mag(d_v_K ));
-      fmt::print("d_p_pi: {},   mag: {}\n", d_p_pi, mag(d_p_pi));
-    }*/
-    if (d_v_pi[2] < 0.0)
-      ++back_count;
-  }
+      ++repeats;
+
+      // angle of kaon motion in B meson's reference frame
+      const double phi   =           std::uniform_real_distribution<double>{0.0 , 2.0 * std::numbers::pi}(prng_);
+      const double theta = std::acos(std::uniform_real_distribution<double>{-1.0, 1.0                   }(prng_));
+
+      // unscaled velocity of kaon motion in B meson's reference frame
+      const std::array<double, 3> v_temp{std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};
+
+      // velocities of decay products in B meson's reference frame in d
+      const std::array<double, 3> v_K { v_mag_K  * v_temp};
+      const std::array<double, 3> v_pi{-v_mag_pi * v_temp};
+
+      //fmt::print("zero?: {}\n\n", (std::sqrt(pow<2>(p_mag*c) + pow<2>(m_pi)*pow<4>(c)) + std::sqrt(pow<2>(p_mag*c) + pow<2>(m_K)*pow<4>(c))) / pow<2>(c));
+
+      const double v = d_v_mag_B;
+
+      // velocities of decay products in detector's reference frame in c
+      const std::array<double, 3> d_v_K {std::sqrt(1 - pow<2>(v/c)) * v_K [0] / (1 + v/pow<2>(c) * v_K [2]),
+                                         std::sqrt(1 - pow<2>(v/c)) * v_K [1] / (1 + v/pow<2>(c) * v_K [2]),
+                                         (v_K[2] + v)                         / (1 + v/pow<2>(c) * v_K [2]) };
+
+      const std::array<double, 3> d_v_pi{std::sqrt(1 - pow<2>(v/c)) * v_pi[0] / (1 + v/pow<2>(c) * v_pi[2]),
+                                         std::sqrt(1 - pow<2>(v/c)) * v_pi[1] / (1 + v/pow<2>(c) * v_pi[2]),
+                                         (v_pi[2] + v)                        / (1 + v/pow<2>(c) * v_pi[2]) };
+
+      const double d_g_K  = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_K) /c));
+      const double d_g_pi = 1.0 / std::sqrt(1.0 - pow<2>(mag(d_v_pi)/c));
+
+      const std::array<double, 3> d_p_K  = (d_g_K  * m_K ) * d_v_K;
+      const std::array<double, 3> d_p_pi = (d_g_pi * m_pi) * d_v_pi;
+
+      const double d_p_mag_K  = mag(d_p_K);
+      const double d_p_mag_pi = mag(d_p_pi);
+      const double d_pt_K     = std::sqrt(pow<2>(d_p_K [0]) + pow<2>(d_p_K [1]));
+      const double d_pt_pi    = std::sqrt(pow<2>(d_p_pi[0]) + pow<2>(d_p_pi[1]));
+
+      average_d_p_mag_K  += d_p_mag_K;
+      average_d_p_mag_pi += d_p_mag_pi;
+      average_d_pt_K     += d_pt_K;
+      average_d_pt_pi    += d_pt_pi;
+
+      ++hist_d_p_mag_K [static_cast<std::size_t>(d_p_mag_K  / (bs_hist_d_p_mag_K * c * pow<6>(10)))];
+      ++hist_d_p_mag_pi[static_cast<std::size_t>(d_p_mag_pi / (bs_hist_d_p_mag_pi * c * pow<6>(10)))];
+      ++hist_d_pt_K    [static_cast<std::size_t>(d_pt_K     / (bs_hist_d_pt_K * c * pow<6>(10)))];
+      ++hist_d_pt_pi   [static_cast<std::size_t>(d_pt_pi    / (bs_hist_d_pt_pi * c * pow<6>(10)))];
+
+      const double impact_parameter_K  = d_d_B * std::sqrt(pow<2>(d_v_K [0]) + pow<2>(d_v_K [1])) / mag(d_v_K);
+      const double impact_parameter_pi = d_d_B * std::sqrt(pow<2>(d_v_pi[0]) + pow<2>(d_v_pi[1])) / mag(d_v_pi);
+
+      average_impact_parameter_K  += impact_parameter_K;
+      average_impact_parameter_pi += impact_parameter_pi;
+
+      ++hist_impact_parameter_K [static_cast<std::size_t>(impact_parameter_K  / bs_hist_impact_parameter_K)];
+      ++hist_impact_parameter_pi[static_cast<std::size_t>(impact_parameter_pi / bs_hist_impact_parameter_pi)];
+
+      /*if (i < 40)
+      {
+        fmt::print("gamma: {}\n", d_g_K);
+        fmt::print("d_v_K:  {},   mag: {}\n", d_v_K , mag(d_v_K ));
+        fmt::print("d_p_pi: {},   mag: {}\n", d_p_pi, mag(d_p_pi));
+      }*/
+      if (d_v_pi[2] < 0.0)
+        ++back_count;
+    }
+  };
+
+  std::thread loop_thread{loop};
+
+  int temp;
+
+  // wait for input
+  std::cin >> temp;
+
+  finish = true;
+
+  loop_thread.join();
 
   fmt::print("\n");
 
@@ -286,6 +307,8 @@ int main()
   fmt::print("\nimpact_parameter_pi:\n");
   for (int i = 0; i < bucket_count; ++i)
     fmt::print("{:<8.8} to {:<8.8}:   {}\n", bs_hist_impact_parameter_pi * i, bs_hist_impact_parameter_pi * (i + 1), hist_impact_parameter_pi[i]);
+
+  fmt::print("\nrepeats: {}\n", repeats);
 
   std::ofstream out;
 

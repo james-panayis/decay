@@ -4,11 +4,19 @@ SHELL=/bin/bash
 
 CC=g++
 
+FLAGS=-std=c++2a -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include
+
+LIBS="external/libs/libfmt.a" `root-config --libs`
+
+OPT=-O3 -fomit-frame-pointer
+
+DBG=-g -fsanitize=address,undefined -static-libasan
+
 .PHONY: all
 
 all: cache/test
 
-cache/test: makefile simulation.cpp external/fmt
+cache/test: root makefile simulation.cpp external/fmt
 	@
 	if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
 		module is-loaded GCC/11.2.0
@@ -18,9 +26,9 @@ cache/test: makefile simulation.cpp external/fmt
 		fi
 	fi
 	echo "compiling"
-	$(CC) -O3 -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o cache/test
+	$(CC) $(OPT) $(FLAGS) simulation.cpp $(LIBS) -o cache/test
 
-debug: makefile simulation.cpp external/fmt
+debug: root makefile simulation.cpp external/fmt
 	@
 	if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
 		module is-loaded GCC/11.2.0
@@ -30,7 +38,7 @@ debug: makefile simulation.cpp external/fmt
 		fi
 	fi
 	echo "compiling"
-	$(CC) -g -fsanitize=address,undefined -static-libasan -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o cache/test
+	$(CC) $(DBG) $(FLAGS) simulation.cpp $(LIBS) -o cache/test
 
 run: makefile all
 	./cache/test
@@ -39,6 +47,16 @@ external/fmt: makefile external/get-fmt.sh
 	pushd external > /dev/null
 	./get-fmt.sh
 	popd > /dev/null
+
+root: makefile
+	@
+	which root
+	if [ $$? -ne 0 ]; then
+		echo "root not found. aborting."
+		exit 1
+	fi
+
+
 
 clean: makefile
 	rm cache/test

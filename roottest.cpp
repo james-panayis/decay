@@ -1,46 +1,66 @@
+#include "TCanvas.h"
+#include "TGraph.h"
+#include "TMultiGraph.h"
+
+#include<memory>
+
 void roottest()
 {
-  auto mg_p    = new TMultiGraph;
+  auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3500, 2000);
 
-  auto gr_p_K  = new TGraph("cache/out.csv", "%lg,%lg");
-  auto gr_p_pi = new TGraph("cache/out.csv", "%*lg,%*lg,%lg,%lg");
+  {
+    auto mg_p    = std::make_unique<TMultiGraph>();
 
-  gr_p_K ->SetLineColor(kRed);
-  gr_p_pi->SetLineColor(kBlue);
+    auto gr_p_K  = std::make_unique<TGraph>("cache/out.csv", "%lg,%lg");
+    auto gr_p_pi = std::make_unique<TGraph>("cache/out.csv", "%*lg,%*lg,%lg,%lg");
 
-  mg_p->Add(gr_p_K);
-  mg_p->Add(gr_p_pi);
+    gr_p_K ->SetLineColor(kRed);
+    gr_p_pi->SetLineColor(kBlue);
 
-  mg_p->Draw("a");
-  return;
+    mg_p->Add(gr_p_K.release());
+    mg_p->Add(gr_p_pi.release());
 
+    mg_p->Draw("a");
 
+    canvas->SaveAs("cache/toy_simulation_p.png");
+  }
 
-  auto mg_pt    = new TMultiGraph;
+  {
+    auto mg_pt    = std::make_unique<TMultiGraph>();
 
-  auto gr_pt_K  = new TGraph("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%lg,%lg");
-  auto gr_pt_pi = new TGraph("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
+    auto gr_pt_K  = std::make_unique<TGraph>("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%lg,%lg");
+    auto gr_pt_pi = std::make_unique<TGraph>("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
 
-  gr_pt_K ->SetLineColor(kRed);
-  gr_pt_pi->SetLineColor(kBlue);
+    gr_pt_K ->SetLineColor(kRed);
+    gr_pt_pi->SetLineColor(kBlue);
 
-  mg_pt->Add(gr_pt_K);
-  mg_pt->Add(gr_pt_pi);
+    mg_pt->Add(gr_pt_K.release());
+    mg_pt->Add(gr_pt_pi.release());
 
-  mg_pt->Draw("a");
+    mg_pt->Draw("a");
 
+    canvas->SaveAs("cache/toy_simulation_pt.png");
+  }
 
+  {
+    auto mg_ip    = std::make_unique<TMultiGraph>();
 
-  auto mg_ip    = new TMultiGraph;
+    auto gr_ip_K  = std::make_unique<TGraph>("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
+    auto gr_ip_pi = std::make_unique<TGraph>("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
 
-  auto gr_ip_K  = new TGraph("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
-  auto gr_ip_pi = new TGraph("cache/out.csv", "%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%*lg,%lg,%lg");
+    gr_ip_K ->SetLineColor(kRed);
+    gr_ip_pi->SetLineColor(kBlue);
 
-  gr_ip_K ->SetLineColor(kRed);
-  gr_ip_pi->SetLineColor(kBlue);
+    mg_ip->Add(gr_ip_K.release());
+    mg_ip->Add(gr_ip_pi.release());
 
-  mg_ip->Add(gr_ip_K);
-  mg_ip->Add(gr_ip_pi);
+    mg_ip->Draw("a");
 
-  mg_ip->Draw("a");
+    canvas->SaveAs("cache/toy_simulation_ip.png");
+  }
+}
+
+int main()
+{
+  roottest();
 }

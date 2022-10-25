@@ -1,1 +1,0 @@
-time g++ -O3 -std=c++2b -fno-stack-protector -fomit-frame-pointer -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include simulation.cpp "external/libs/libfmt.a" -o test

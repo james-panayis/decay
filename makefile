@@ -44,9 +44,9 @@ debug%.out: %.cpp makefile external/fmt
 	out=$@
 	$(CC) $(DBG) $(FLAGS) $< $(LIBS) -o cache/$${out:5}
 
-run: makefile cache/simulation.out cache/roottest.out
+run: makefile cache/simulation.out cache/simulation_csv2graph.out
 	./cache/simulation.out
-	./cache/roottest.out
+	./cache/simulation_csv2graph.out
 
 external/fmt: makefile external/get-fmt.sh
 	pushd external > /dev/null

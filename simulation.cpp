@@ -259,9 +259,10 @@ int main()
 
   std::thread loop_thread{loop};
 
+  // wait for input
+  fmt::print("Looping. Type then press enter to stop.");
   int temp;
 
-  // wait for input
   std::cin >> temp;
 
   finish = true;

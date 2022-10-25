@@ -15,8 +15,9 @@ plt.rc("text", usetex=True)
 
 lhcbName = setLHCbPlotStyle()
 
-#savingDirectory = "Bc_pimumu_work/roc_curves"
-savingDirectory = "mixed_sample_plots"
+ROCsavingDirectory = "../cache/ROC_curves/"
+HISTsavingDirectory = "../cache/Histograms/"
+CORRsavingDirectory = "../cache/Correlations/"
 
 
 #ROC CURVE FUNCTIONS
@@ -78,7 +79,7 @@ def plot_roc_curve(sig_tree,
     plt.legend(fontsize="x-large", loc='center left')
     plt.tight_layout()
 
-    output_file_name = f"{savingDirectory}/ROC_{plot_name}.pdf"
+    output_file_name = f"{ROCsavingDirectory}ROC_{plot_name}.pdf"
     plt.savefig(output_file_name)
     plt.clf()
 
@@ -192,7 +193,7 @@ def plot_2roc_curves(sig_tree,
     plt.legend(fontsize="x-large", loc='center left')
     plt.tight_layout()
 
-    output_file_name = f"{savingDirectory}/ROC_{plot_name}.pdf"
+    output_file_name = f"{ROCsavingDirectory}ROC_{plot_name}.pdf"
     plt.savefig(output_file_name)
     plt.ylim(0.99, 1.01)
     plt.yscale('log')
@@ -201,7 +202,7 @@ def plot_2roc_curves(sig_tree,
     plt.subplots_adjust(
         left=0.2, right=0.9, top=0.9, bottom=0.125, wspace=0.2, hspace=0.2)
 
-    output_file_name_log = f"{savingDirectory}/ROC_{plot_name}_log.pdf"
+    output_file_name_log = f"{ROCsavingDirectory}ROC_{plot_name}_log.pdf"
     plt.savefig(output_file_name_log)
 
     plt.clf()
@@ -320,7 +321,7 @@ def plot_3roc_curves(sig_tree,
     plt.legend(fontsize="x-large", loc='center left')
     plt.tight_layout()
 
-    output_file_name = f"{savingDirectory}/ROC_{plot_name}.pdf"
+    output_file_name = f"{ROCsavingDirectory}ROC_{plot_name}.pdf"
     plt.savefig(output_file_name)
     plt.ylim(0.99, 1.01)
     plt.yscale('log')
@@ -329,7 +330,7 @@ def plot_3roc_curves(sig_tree,
     plt.subplots_adjust(
         left=0.2, right=0.9, top=0.9, bottom=0.125, wspace=0.2, hspace=0.2)
 
-    output_file_name_log = f"{savingDirectory}/ROC_{plot_name}_log.pdf"
+    output_file_name_log = f"{ROCsavingDirectory}ROC_{plot_name}_log.pdf"
     plt.savefig(output_file_name_log)
 
     plt.clf()
@@ -477,7 +478,7 @@ def makeHist(name,
     t.SetTextSize(0.04)
     t.Draw()
 
-    c0.Print(f"{name}")
+    c0.Print(f"{HISTsavingDirectory}{name}")
     if var_name in ["xgb_output!<---------------"]:
         sig_chiSqrd = chiSqrdNdf(h_test_sig, h_train_sig)
         bkg_chiSqrd = chiSqrdNdf(h_test_bkg, h_train_bkg)
@@ -550,6 +551,7 @@ def draw_correlation(df=None, label='', filename=''):
                 color="w",
                 fontsize=6)
     plt.title(label)
+    filename = f"{CORRsavingDirectory}{filename}"
     plt.savefig(filename)
     print('\nCreated ' + filename + '\n')
     #plt.show()

@@ -46,7 +46,6 @@ auto compare_variables()
 
   fmt::print("columns in real data: {}, simulated data: {}, common to both: {}\n", realcols.size(), simucols.size(), cols.size());
 
-  //auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3500, 2000);
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1750, 1000);
 
   for (auto& col : cols)
@@ -80,7 +79,14 @@ auto compare_variables()
     TH1D tempsimuhist{*simurdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
     TH1D temprealhist{*realrdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
 
-    constexpr std::array<double, 2> boundaries{0.0025, 0.9975};
+    if (tempsimuhist.Integral() == 0 || temprealhist.Integral() == 0)
+    {
+      fmt::print("Histogram has 0 integral. Integral of simulated data: {}. Integral of real data: {}\n", tempsimuhist.Integral(), temprealhist.Integral());
+
+      continue;
+    }
+
+    constexpr std::array<double, 2> boundaries{0.005, 0.995};
 
     std::array<double, 2> simuquantiles{};
     std::array<double, 2> realquantiles{};
@@ -109,59 +115,31 @@ auto compare_variables()
     simuhist.SetLineColor(kBlue);
     realhist.SetLineColor(kRed);
 
-    simuhist.DrawNormalized("");
-    realhist.DrawNormalized("SAME");
+    if (simuhist.Integral() == 0 || realhist.Integral() == 0)
+    {
+      fmt::print("Histogram reduced by quantiles has 0 integral. Integral of simulated data (before reduction): {} ({}). Integral of real data (before reduction): {} ({})\n", simuhist.Integral(), tempsimuhist.Integral(), realhist.Integral(), temprealhist.Integral());
+
+      continue;
+    }
+
+    simuhist.Scale(1.0 / simuhist.Integral());
+    realhist.Scale(1.0 / realhist.Integral());
+
+    const auto simuymax = simuhist.GetBinContent(simuhist.GetMaximumBin());
+    const auto realymax = realhist.GetBinContent(realhist.GetMaximumBin());
+
+    const auto ymax = 1.1 * std::max(simuymax, realymax);
+
+    fmt::print("{} {} {}\n", simuymax, realymax, ymax);
+
+    simuhist.GetYaxis()->SetRangeUser(0, ymax);
+    realhist.GetYaxis()->SetRangeUser(0, ymax);
+
+    simuhist.Draw("HIST");
+    realhist.Draw("HIST SAME");
 
     canvas->SaveAs(fmt::format("cache/compare_var_{}.png", col).c_str());
   }
-
-
-
-
-
-
-
-
-  //mg_p->Add(simugraph);
-
-  //mg_p->Draw("a");
-
-  /*
-  auto mg_p = new TMultiGraph;
-
-  realtree->Print();
-
-  realtree->Draw("nMuonTracks>>htemp");
-
-  TH1F* hist = (TH1F*)gDirectory->Get("htemp");
-
-  hist->Print();
-
-  auto g1_p = new TGraph;
-
-  g1_p->SetHistogram(hist);
-
-  g1_p->Print();
-
-  g1_p->Draw("a");
-
-  //mg_p->Add(g1_p);
-
-  //mg_p->Draw("a");
-
-
-  //mg_p->Draw("a");
-  */
-
-/*
-  std::cout << std::is_same_v<decltype(simutree), decltype(realtree)> << '\n';
-  std::cout << std::is_pointer_v<decltype(simutree)>  << '\n';
-  std::cout << typeid(simutree).name() << '\n';
-  std::cout << typeid(realtree).name() << '\n';
-  std::cout << typeid(TTree).name() << '\n';
-  std::cout << typeid(TTree*).name() << '\n';
-  std::cout << typeid(TObject*).name() << '\n';
-  */
 }
 
 int main()

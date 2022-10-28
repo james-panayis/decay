@@ -10,10 +10,11 @@
 
 #include<memory>
 #include<array>
+#include<algorithm>
 
 auto compare_variables()
 {
-  //ROOT::EnableImplicitMT();
+  ROOT::EnableImplicitMT();
 
   ROOT::RDataFrame simurdf{"tree", "../data/Lb2pKmm_sim_mgUp_2018.root"};
   ROOT::RDataFrame realrdf{"Lb_Tuple/DecayTree", "../data/Lb2pKmm_mgUp_2018.root"};
@@ -46,6 +47,8 @@ auto compare_variables()
 
   fmt::print("columns in real data: {}, simulated data: {}, common to both: {}\n", realcols.size(), simucols.size(), cols.size());
 
+  std::vector<std::pair<double, std::string>> scores{};
+
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1750, 1000);
 
   for (auto& col : cols)
@@ -76,8 +79,10 @@ auto compare_variables()
     auto min = std::min(simumin, realmin);
     auto max = std::max(simumax, realmax);
 
-    TH1D tempsimuhist{*simurdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
-    TH1D temprealhist{*realrdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
+    constexpr int bin_count{400};
+
+    TH1D tempsimuhist{*simurdf.Histo1D({col.c_str(), col.c_str(), bin_count, min, max}, col)};
+    TH1D temprealhist{*realrdf.Histo1D({col.c_str(), col.c_str(), bin_count, min, max}, col)};
 
     if (tempsimuhist.Integral() == 0 || temprealhist.Integral() == 0)
     {
@@ -86,7 +91,7 @@ auto compare_variables()
       continue;
     }
 
-    constexpr std::array<double, 2> boundaries{0.005, 0.995};
+    constexpr std::array<double, 2> boundaries{0.05, 0.95};
 
     std::array<double, 2> simuquantiles{};
     std::array<double, 2> realquantiles{};
@@ -109,8 +114,8 @@ auto compare_variables()
     min = std::min(simumin, realmin);
     max = std::max(simumax, realmax);
 
-    TH1D simuhist{*simurdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
-    TH1D realhist{*realrdf.Histo1D({col.c_str(), col.c_str(), 100, min, max}, col)};
+    TH1D simuhist{*simurdf.Histo1D({col.c_str(), col.c_str(), bin_count, min, max}, col)};
+    TH1D realhist{*realrdf.Histo1D({col.c_str(), col.c_str(), bin_count, min, max}, col)};
 
     simuhist.SetLineColor(kBlue);
     realhist.SetLineColor(kRed);
@@ -124,13 +129,13 @@ auto compare_variables()
 
     simuhist.Scale(1.0 / simuhist.Integral());
     realhist.Scale(1.0 / realhist.Integral());
+    tempsimuhist.Scale(1.0 / tempsimuhist.Integral());
+    temprealhist.Scale(1.0 / temprealhist.Integral());
 
     const auto simuymax = simuhist.GetBinContent(simuhist.GetMaximumBin());
     const auto realymax = realhist.GetBinContent(realhist.GetMaximumBin());
 
     const auto ymax = 1.1 * std::max(simuymax, realymax);
-
-    fmt::print("{} {} {}\n", simuymax, realymax, ymax);
 
     simuhist.GetYaxis()->SetRangeUser(0, ymax);
     realhist.GetYaxis()->SetRangeUser(0, ymax);
@@ -139,7 +144,32 @@ auto compare_variables()
     realhist.Draw("HIST SAME");
 
     canvas->SaveAs(fmt::format("cache/compare_var_{}.png", col).c_str());
+
+    double simucumulative{0};
+    double realcumulative{0};
+
+    double score{0};
+
+    for (int i = 1; i <= bin_count; ++i)
+    {
+      simucumulative += simuhist.GetBinContent(i);
+      realcumulative += realhist.GetBinContent(i);
+
+      score += std::max(simucumulative, realcumulative) - std::min(simucumulative, realcumulative);
+    }
+
+    if (std::max(simucumulative, realcumulative) - std::min(simucumulative, realcumulative) > 0.000000001)
+      fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: cumulative real and simulated graphs do not end on same value for variable {}. real: {}, simulated: {}\n", col, realcumulative, simucumulative);
+
+    scores.emplace_back(score, col);
   }
+
+  fmt::print("\n{} graphs generated\n", scores.size());
+
+  std::ranges::sort(scores);
+
+  for (auto& p : scores)
+    fmt::print("{} : {}\n", p.first, p.second);
 }
 
 int main()

@@ -21,15 +21,29 @@ all-debug: $(patsubst %.cpp, debug%.out, $(wildcard *.cpp))
 define prepare-compilation = 
 	@
 	which root > /dev/null
-  if [ $$? -ne 0 ]; then
-    echo "root not found. aborting."
-    exit 1
-  fi
+	if [ $$? -ne 0 ]; then
+		if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
+			echo "sourcing root (you may want to source it to avoid this happening everytime)"
+			source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_101 x86_64-centos7-gcc10-opt
+			if [ $$? -ne 0 ]; then
+				echo "root source attempt failed. aborting."
+				exit 1
+			fi
+		fi
+		if [ $$? -ne 0 ]; then
+			echo "root not found. aborting."
+			exit 1
+		fi
+	fi
 	if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
 		module is-loaded GCC/11.2.0
 		if [ $$? -ne 0 ]; then
-			echo "loading compiler (you may want to module load GCC/11.2 to avoid this happening everytime)"
+			echo "loading compiler and libraries (you may want to module load GCC/11.2 to avoid this happening everytime)"
 			module load GCC/11.2
+			if [ $$? -ne 0 ]; then
+				echo "module load failed. aborting."
+				exit 1
+			fi
 		fi
 	fi
 	echo "compiling"
@@ -44,7 +58,13 @@ debug%.out: %.cpp makefile external/fmt
 	out=$@
 	$(CC) $(DBG) $(FLAGS) $< $(LIBS) -o cache/$${out:5}
 
-run: makefile cache/simulation.out cache/simulation_csv2graph.out
+run-cache/%.out: cache/%.out makefile
+	$(prepare-compilation)
+	out=$@
+	./$${out:4}
+
+run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
+	$(prepare-compilation)
 	./cache/simulation.out
 	./cache/simulation_csv2graph.out
 

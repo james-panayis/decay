@@ -188,28 +188,28 @@ int main()
 
   auto loop = [&]
   {
+    std::array<std::uint64_t, bucket_count> hist_d_p_mag_K_temp{};
+    std::array<std::uint64_t, bucket_count> hist_d_p_mag_pi_temp{};
+    std::array<std::uint64_t, bucket_count> hist_d_pt_K_temp{};
+    std::array<std::uint64_t, bucket_count> hist_d_pt_pi_temp{};
+    std::array<std::uint64_t, bucket_count> hist_impact_parameter_K_temp{};
+    std::array<std::uint64_t, bucket_count> hist_impact_parameter_pi_temp{};
+    double average_d_p_mag_K_temp {0};
+    double average_d_p_mag_pi_temp{0};
+    double average_d_pt_K_temp    {0};
+    double average_d_pt_pi_temp   {0};
+    double average_impact_parameter_K_temp {0};
+    double average_impact_parameter_pi_temp{0};
+
+    int back_count_temp{0};
+
+    std::int64_t repeats_temp{0};
+
     while (!finish)
     {
-      std::array<std::uint64_t, bucket_count> hist_d_p_mag_K_temp{};
-      std::array<std::uint64_t, bucket_count> hist_d_p_mag_pi_temp{};
-      std::array<std::uint64_t, bucket_count> hist_d_pt_K_temp{};
-      std::array<std::uint64_t, bucket_count> hist_d_pt_pi_temp{};
-      std::array<std::uint64_t, bucket_count> hist_impact_parameter_K_temp{};
-      std::array<std::uint64_t, bucket_count> hist_impact_parameter_pi_temp{};
-      double average_d_p_mag_K_temp {0};
-      double average_d_p_mag_pi_temp{0};
-      double average_d_pt_K_temp    {0};
-      double average_d_pt_pi_temp   {0};
-      double average_impact_parameter_K_temp {0};
-      double average_impact_parameter_pi_temp{0};
-
-      int back_count_temp{0};
-
-      std::int64_t repeats_temp{0};
-
       for (int i = 0; i < 1000; ++i)
       {
-        ++repeats;
+        ++repeats_temp;
 
         // angle of kaon motion in B meson's reference frame
         const double phi   =           std::uniform_real_distribution<double>{0.0 , 2.0 * std::numbers::pi}(prng_);
@@ -266,43 +266,42 @@ int main()
         if (d_v_pi[2] < 0.0)
           ++back_count_temp;
       }
-
-      for (int i = 0; i < bucket_count; ++i)
-      {
-        hist_d_p_mag_K[i]  += hist_d_p_mag_K_temp[i];
-        hist_d_p_mag_pi[i] += hist_d_p_mag_pi_temp[i];
-        hist_d_pt_K[i]     += hist_d_pt_K_temp[i];
-        hist_d_pt_pi[i]    += hist_d_pt_pi_temp[i];
-        hist_impact_parameter_K[i]  += hist_impact_parameter_K_temp[i];
-        hist_impact_parameter_pi[i] += hist_impact_parameter_pi_temp[i];
-      }
-
-      average_d_p_mag_K  += average_d_p_mag_K_temp;
-      average_d_p_mag_pi += average_d_p_mag_pi_temp;
-      average_d_pt_K     += average_d_pt_K_temp;
-      average_d_pt_pi    += average_d_pt_pi_temp;
-      average_impact_parameter_K  += average_impact_parameter_K_temp;
-      average_impact_parameter_pi += average_impact_parameter_pi_temp;
-
-      back_count += back_count_temp;
-      repeats    += repeats_temp;
     }
+
+    for (int i = 0; i < bucket_count; ++i)
+    {
+      hist_d_p_mag_K[i]  += hist_d_p_mag_K_temp[i];
+      hist_d_p_mag_pi[i] += hist_d_p_mag_pi_temp[i];
+      hist_d_pt_K[i]     += hist_d_pt_K_temp[i];
+      hist_d_pt_pi[i]    += hist_d_pt_pi_temp[i];
+      hist_impact_parameter_K[i]  += hist_impact_parameter_K_temp[i];
+      hist_impact_parameter_pi[i] += hist_impact_parameter_pi_temp[i];
+    }
+
+    average_d_p_mag_K  += average_d_p_mag_K_temp;
+    average_d_p_mag_pi += average_d_p_mag_pi_temp;
+    average_d_pt_K     += average_d_pt_K_temp;
+    average_d_pt_pi    += average_d_pt_pi_temp;
+    average_impact_parameter_K  += average_impact_parameter_K_temp;
+    average_impact_parameter_pi += average_impact_parameter_pi_temp;
+
+    back_count += back_count_temp;
+    repeats    += repeats_temp;
   };
 
-  std::vector<std::thread> loop_threads{};
+  {
+    std::vector<std::jthread> loop_threads{};
 
-  for (std::uint32_t i = 1; i < std::thread::hardware_concurrency(); ++i)
-    loop_threads.emplace_back(loop);
+    for (std::uint32_t i = 1; i < std::thread::hardware_concurrency(); ++i)
+      loop_threads.emplace_back(loop);
 
-  // wait for input
-  fmt::print("Looping on {} threads. Type then press enter to stop.", loop_threads.size());
+    // wait for input
+    fmt::print("Looping on {} threads. Type then press enter to stop.", loop_threads.size());
 
-  int temp; std::cin >> temp;
+    int temp; std::cin >> temp;
 
-  finish = true;
-
-  for (auto& loop_thread : loop_threads)
-    loop_thread.join();
+    finish = true;
+  }
 
   fmt::print("\n");
 

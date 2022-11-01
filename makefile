@@ -10,7 +10,7 @@ LIBS="external/libs/libfmt.a" `root-config --libs`
 
 OPT=-O3 -fomit-frame-pointer -flto
 
-DBG=-g -fsanitize=address,undefined -static-libasan
+DBG=-Og -g -fsanitize=address,undefined -static-libasan
 
 .PHONY: clean
 
@@ -18,7 +18,7 @@ all: $(patsubst %.cpp, cache/%.out, $(wildcard *.cpp))
 
 all-debug: $(patsubst %.cpp, debug%.out, $(wildcard *.cpp))
 
-define prepare-compilation = 
+define prepare = 
 	@
 	which root > /dev/null
 	if [ $$? -ne 0 ]; then
@@ -46,26 +46,30 @@ define prepare-compilation =
 			fi
 		fi
 	fi
-	echo "compiling"
 endef
 
 cache/%.out: %.cpp makefile external/fmt
-	$(prepare-compilation)
+	$(prepare)
+	echo "compiling $<"
 	$(CC) $(OPT) $(FLAGS) $< $(LIBS) -o $@
 
 debug%.out: %.cpp makefile external/fmt
-	$(prepare-compilation)
+	$(prepare)
 	out=$@
+	echo "compiling debug build of $<"
 	$(CC) $(DBG) $(FLAGS) $< $(LIBS) -o cache/$${out:5}
 
 run-cache/%.out: cache/%.out makefile
-	$(prepare-compilation)
+	$(prepare)
 	out=$@
+	echo "running $${out:10}"
 	./$${out:4}
 
 run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
-	$(prepare-compilation)
+	$(prepare)
+	echo "running simulation"
 	./cache/simulation.out
+	echo "running graph generation"
 	./cache/simulation_csv2graph.out
 
 external/fmt: makefile external/get-fmt.sh

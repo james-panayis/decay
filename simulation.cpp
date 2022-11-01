@@ -182,11 +182,9 @@ int main()
   std::atomic<double> average_impact_parameter_K {0};
   std::atomic<double> average_impact_parameter_pi{0};
 
-  std::atomic<bool> finish{false};
-
   std::atomic<std::int64_t> repeats = 0;
 
-  auto loop = [&]
+  auto loop = [&](std::stop_token stoken)
   {
     std::array<std::uint64_t, bucket_count> hist_d_p_mag_K_temp{};
     std::array<std::uint64_t, bucket_count> hist_d_p_mag_pi_temp{};
@@ -205,7 +203,7 @@ int main()
 
     std::int64_t repeats_temp{0};
 
-    while (!finish)
+    while (!stoken.stop_requested())
     {
       for (int i = 0; i < 1000; ++i)
       {
@@ -299,8 +297,6 @@ int main()
     fmt::print("Looping on {} threads. Type then press enter to stop.", loop_threads.size());
 
     int temp; std::cin >> temp;
-
-    finish = true;
   }
 
   fmt::print("\n");

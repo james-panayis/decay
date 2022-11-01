@@ -53,7 +53,7 @@ template<arithmetic T, std::size_t N>
 {
   std::array<T, N> out;
 
-  for (int i = 0; i < int{N}; ++i)
+  for (std::uint32_t i = 0; i < N; ++i)
   {
     out[i] = mult * arr[i];
   }
@@ -160,7 +160,7 @@ int main()
 
   int back_count = 0;
 
-  constexpr int bucket_count = 4000;
+  constexpr std::uint32_t bucket_count = 4000;
 
   constexpr double bs_hist_d_p_mag_K {60000.0 / double{bucket_count}};
   constexpr double bs_hist_d_p_mag_pi{60000.0 / double{bucket_count}};
@@ -264,9 +264,29 @@ int main()
         if (d_v_pi[2] < 0.0)
           ++back_count_temp;
       }
+
+      for (std::uint32_t i = 0; i < bucket_count; ++i)
+      {
+        hist_d_p_mag_K[i]  += hist_d_p_mag_K_temp[i];
+        hist_d_p_mag_pi[i] += hist_d_p_mag_pi_temp[i];
+        hist_d_pt_K[i]     += hist_d_pt_K_temp[i];
+        hist_d_pt_pi[i]    += hist_d_pt_pi_temp[i];
+        hist_impact_parameter_K[i]  += hist_impact_parameter_K_temp[i];
+        hist_impact_parameter_pi[i] += hist_impact_parameter_pi_temp[i];
+      }
+
+      average_d_p_mag_K  += average_d_p_mag_K_temp;
+      average_d_p_mag_pi += average_d_p_mag_pi_temp;
+      average_d_pt_K     += average_d_pt_K_temp;
+      average_d_pt_pi    += average_d_pt_pi_temp;
+      average_impact_parameter_K  += average_impact_parameter_K_temp;
+      average_impact_parameter_pi += average_impact_parameter_pi_temp;
+
+      back_count += back_count_temp;
+      repeats    += repeats_temp;
     }
 
-    for (int i = 0; i < bucket_count; ++i)
+    for (std::uint32_t i = 0; i < bucket_count; ++i)
     {
       hist_d_p_mag_K[i]  += hist_d_p_mag_K_temp[i];
       hist_d_p_mag_pi[i] += hist_d_p_mag_pi_temp[i];
@@ -331,13 +351,13 @@ int main()
 
   out.open("cache/out.csv");
 
-  for (int i = 0; i < bucket_count; ++i)
+  for (std::uint32_t i = 0; i < bucket_count; ++i)
   {
     std::array bucket_sizes = {&bs_hist_d_p_mag_K, &bs_hist_d_p_mag_pi, &bs_hist_d_pt_K, &bs_hist_d_pt_pi, &bs_hist_impact_parameter_K, &bs_hist_impact_parameter_pi};
 
     std::array histograms = {&hist_d_p_mag_K, &hist_d_p_mag_pi, &hist_d_pt_K, &hist_d_pt_pi, &hist_impact_parameter_K, &hist_impact_parameter_pi};
 
-    for (int j = 0; j < std::ssize(histograms); ++j)
+    for (std::uint32_t j = 0; j < histograms.size(); ++j)
     {
       out << fmt::format("{},", *bucket_sizes[j] * (static_cast<double>(i) + 0.5));
       out << fmt::format("{},", (*histograms[j])[i]);

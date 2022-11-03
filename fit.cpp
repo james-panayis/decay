@@ -1,17 +1,17 @@
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TMultiGraph.h"
-#include <ROOT/RDataFrame.hxx>
+#include "ROOT/RDataFrame.hxx"
 
 #include <fmt/format.h>
 #include <fmt/compile.h>
 #include <fmt/color.h>
 
-#include<memory>
-#include<thread>
-#include<array>
-#include<algorithm>
-#include<random>
+#include <memory>
+#include <thread>
+#include <array>
+#include <algorithm>
+#include <random>
 
 // Create a seed sequence with enough seeds to fully initialize a std::mt19937
 [[nodiscard]] std::seed_seq generate_seeds() noexcept
@@ -74,7 +74,7 @@ struct fmt::formatter<peak_t>
 
 auto compare_variables()
 {
-  //ROOT::EnableImplicitMT(); //breaks printing???
+  //ROOT::EnableImplicitMT(); // Breaks saving of graphs (causes seperate (inaccessible???) canvases for each(?) thread)
 
 
   //std::ifstream in;
@@ -87,6 +87,8 @@ auto compare_variables()
   const auto vecs = [&]
   {
     std::vector<std::vector<double>> out{};
+
+    out.reserve(cols.size());
 
     for (auto& col : cols)
     {
@@ -115,7 +117,7 @@ auto compare_variables()
     {
       auto n = next.fetch_add(1, std::memory_order_relaxed);
 
-      if (n >= std::ssize(vecs))
+      if (n >= vecs.size())
         return;
 
       fmt::print("fitting variable: {}\n", cols[n]);
@@ -171,29 +173,32 @@ auto compare_variables()
         auto new_peaks = peaks;
 
         //if (std::ssize(new_peaks) > 0 && (std::ssize(new_peaks) > 10 || std::bernoulli_distribution(0.9)(prng_)))
-        if (std::ssize(new_peaks) > 0 && std::bernoulli_distribution(0.9)(prng_))
+        if (new_peaks.size() > 0 && std::bernoulli_distribution(0.9)(prng_))
         {
-          if (std::bernoulli_distribution(0.05)(prng_))
+          // index of gaussian to alter
+          const auto change_index = std::uniform_int_distribution(0ul, new_peaks.size() - 1)(prng_);
+
+          if (std::bernoulli_distribution(0.25)(prng_))
           {
-            new_peaks[std::uniform_int_distribution(0ul, new_peaks.size() - 1)(prng_)].position += std::uniform_real_distribution(-span/100, span/100)(prng_);
+            new_peaks.erase(new_peaks.begin() + static_cast<std::int64_t>(change_index));
           }
-          if (std::bernoulli_distribution(0.75)(prng_))
+          else if (std::bernoulli_distribution(0.05)(prng_))
           {
-            new_peaks.erase(new_peaks.begin() + std::uniform_int_distribution(0l, std::ssize(new_peaks) - 1)(prng_));
+            new_peaks[change_index].position += std::uniform_real_distribution(-span/100, span/100)(prng_);
           }
           else if (std::bernoulli_distribution(0.5)(prng_))
           {
-            new_peaks[std::uniform_int_distribution(0ul, new_peaks.size() - 1)(prng_)].magnitude *= std::uniform_real_distribution(0.5, 2.0)(prng_);
+            new_peaks[change_index].magnitude *= std::uniform_real_distribution(0.5, 2.0)(prng_);
           }
           else
           {
-            new_peaks[std::uniform_int_distribution(0ul, new_peaks.size() - 1)(prng_)].width *= std::uniform_real_distribution(0.5, 2.0)(prng_);
+            new_peaks[change_index].width *= std::uniform_real_distribution(0.5, 2.0)(prng_);
           }
         }
         else
         {
           new_peaks.emplace_back(std::uniform_real_distribution(min, max)(prng_), 
-                                 std::uniform_real_distribution(0.0, static_cast<double>(vecs[n].size()) * pow<2>(spread) / bucket_count)(prng_), //val!
+                                 std::uniform_real_distribution(0.0, static_cast<double>(vecs[n].size()) * pow<2>(spread) / bucket_count)(prng_),
                                  std::uniform_real_distribution(2.5, span)(prng_));
         }
 
@@ -222,11 +227,11 @@ auto compare_variables()
       };
 
       for (int i = 0; i < 200000; ++i)
-      //for (int i = 0; i < 10000; ++i)
+      //for (int i = 0; i < 5000; ++i)
       {
-        auto new_peaks = generate_new_peaks();
+        const auto new_peaks = generate_new_peaks();
 
-        double new_fit = evaluate_fit(new_peaks);
+        const double new_fit = evaluate_fit(new_peaks);
 
         if (new_fit >= best_fit)
           continue;
@@ -318,10 +323,10 @@ auto compare_variables()
 
         mgraph.Draw("a");
 
-        canvas->SaveAs(fmt::format("cache/test_graph_{}.png", cols[n]).c_str());
+        canvas->SaveAs(fmt::format("cache/graph_{}.png", cols[n]).c_str());
       }
 
-      fmt::print("finished with variable {} ({}/{})\n\n", cols[n], n + 1, std::ssize(vecs));
+      fmt::print("finished with variable {} ({}/{})\n\n", cols[n], n + 1, vecs.size());
     }
   };
 

@@ -72,7 +72,7 @@ struct fmt::formatter<peak_t>
 
 
 
-auto compare_variables()
+auto fit()
 {
   //ROOT::EnableImplicitMT(); // Breaks saving of graphs (causes seperate (inaccessible???) canvases for each(?) thread)
 
@@ -84,25 +84,7 @@ auto compare_variables()
 
   const auto cols = rdf.GetColumnNames();
 
-  const auto vecs = [&]
-  {
-    std::vector<std::vector<double>> out{};
-
-    out.reserve(cols.size());
-
-    for (auto& col : cols)
-    {
-      fmt::print("reading in variable: {}\n", col);
-
-      auto vec{*rdf.Take<double>(col)};
-
-      std::ranges::sort(vec);
-
-      out.push_back(vec);
-    }
-
-    return out;
-  }();
+  std::mutex data_mutex;
 
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 2500, 1500);
 
@@ -117,13 +99,28 @@ auto compare_variables()
     {
       auto n = next.fetch_add(1, std::memory_order_relaxed);
 
-      if (n >= vecs.size())
+      if (n >= cols.size())
         return;
+
+      fmt::print("about to read variable: {}\n", cols[n]);
+
+      const std::vector<double> vec = [&]
+      {
+        const std::scoped_lock lock(data_mutex);
+
+        fmt::print("reading variable: {}\n", cols[n]);
+
+        std::vector<double> out = *rdf.Take<double>(cols[n]);
+
+        std::ranges::sort(out);
+
+        return out;
+      }();
 
       fmt::print("fitting variable: {}\n", cols[n]);
 
-      const auto min = vecs[n].front();
-      const auto max = vecs[n].back();
+      const auto min = vec.front();
+      const auto max = vec.back();
 
       const auto span = max - min;
 
@@ -142,21 +139,18 @@ auto compare_variables()
         return out;
       }();
 
-      fmt::print("{} {}    {} {}\n", min, dist_vals.front(), max, dist_vals.back());
-
       // distribution of values
       const auto distribution = [&]
       {
         std::array<double, bucket_count> out{};
 
-        for (const double val : vecs[n])
+        for (const double val : vec)
         {
           const double distance = (val - min) / span * static_cast<double>(bucket_count);
 
           const auto from = static_cast<std::uint32_t>(std::max(0,          static_cast<std:: int32_t>(distance - spread)    ));
           const auto to   = static_cast<std::uint32_t>(std::min(out.size(), static_cast<std::uint64_t>(distance + spread) + 1));
 
-          //for (int i = std::max(0, static_cast<int>(distance - spread)); i < std::min(std::ssize(out), static_cast<std::int64_t>(distance + spread) + 1); ++i)
           for (std::uint32_t i = from; i < to; ++i)
             out[i] += std::max(0.0, spread - std::abs(dist_vals[i] - min) / span);
         }
@@ -198,7 +192,7 @@ auto compare_variables()
         else
         {
           new_peaks.emplace_back(std::uniform_real_distribution(min, max)(prng_), 
-                                 std::uniform_real_distribution(0.0, static_cast<double>(vecs[n].size()) * pow<2>(spread) / bucket_count)(prng_),
+                                 std::uniform_real_distribution(0.0, static_cast<double>(vec.size()) * pow<2>(spread) / bucket_count)(prng_),
                                  std::uniform_real_distribution(2.5, span)(prng_));
         }
 
@@ -326,7 +320,7 @@ auto compare_variables()
         canvas->SaveAs(fmt::format("cache/graph_{}.png", cols[n]).c_str());
       }
 
-      fmt::print("finished with variable {} ({}/{})\n\n", cols[n], n + 1, vecs.size());
+      fmt::print("finished with variable {} ({}/{})\n\n", cols[n], n + 1, cols.size());
     }
   };
 
@@ -342,6 +336,6 @@ auto compare_variables()
 
 int main()
 {
-  compare_variables();
+  fit();
 }
 

@@ -4,7 +4,7 @@ SHELL=/bin/bash
 
 CC=g++
 
-FLAGS=-std=c++2a -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include
+FLAGS=-std=c++20 -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include
 
 LIBS="external/libs/libfmt.a" `root-config --libs`
 
@@ -22,31 +22,25 @@ define prepare =
 	@
 	which root > /dev/null
 	if [ $$? -ne 0 ]; then
-		if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
-			echo "sourcing root (you may want to source it to avoid this happening everytime)"
-			source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_101 x86_64-centos7-gcc10-opt
-			if [ $$? -ne 0 ]; then
-				echo "root source attempt failed. aborting."
-				exit 1
-			fi
-		fi
+		echo "sourcing root (you may want to source it to avoid this happening everytime)"
+		source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_102b x86_64-centos7-gcc12-opt
 		if [ $$? -ne 0 ]; then
-			echo "root not found. aborting."
+			echo "root source attempt failed. aborting."
 			exit 1
 		fi
 	fi
-	if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]]; then
-		module is-loaded GCC/11.2.0
+	g++ --version | awk '/GCC/ && ($3+0)<11.3{exit 1;}'
+	if [ $$? -ne 0 ]; then
+		echo "sourcing root to get g++11.3 or later (you may want to source it to avoid this happening everytime)"
+		source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_102b x86_64-centos7-gcc12-opt
 		if [ $$? -ne 0 ]; then
-			echo "loading compiler and libraries (you may want to module load GCC/11.2 to avoid this happening everytime)"
-			module load GCC/11.2
-			if [ $$? -ne 0 ]; then
-				echo "module load failed. aborting."
-				exit 1
-			fi
+			echo "root source attempt failed. aborting."
+			exit 1
 		fi
 	fi
 endef
+
+#if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]] || [[ "$${HOSTNAME: -8}" = ".cern.ch" ]]; then
 
 cache/%.out: %.cpp makefile external/fmt
 	$(prepare)
@@ -69,7 +63,7 @@ run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
 	$(prepare)
 	echo "running simulation"
 	./cache/simulation.out
-	echo "running graph generation"
+	echo "running graph generation on simulation data"
 	./cache/simulation_csv2graph.out
 
 external/fmt: makefile external/get-fmt.sh
@@ -80,3 +74,4 @@ external/fmt: makefile external/get-fmt.sh
 
 clean: makefile
 	rm -f cache/*.out
+

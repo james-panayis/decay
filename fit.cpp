@@ -3,6 +3,8 @@
 #include "TMultiGraph.h"
 #include "ROOT/RDataFrame.hxx"
 
+#include "timeblit/random.hpp"
+
 #include <fmt/format.h>
 #include <fmt/compile.h>
 #include <fmt/color.h>
@@ -13,23 +15,7 @@
 #include <algorithm>
 #include <random>
 
-// Create a seed sequence with enough seeds to fully initialize a std::mt19937
-[[nodiscard]] std::seed_seq generate_seeds() noexcept
-{
-  std::array<std::mt19937::result_type, std::mt19937::state_size> seeds;
-
-  std::random_device rd;
-
-  std::uniform_int_distribution<std::mt19937::result_type> dist{};
-
-  for (auto& seed : seeds)
-    seed = dist(rd);
-
-  return std::seed_seq(seeds.begin(), seeds.end());
-}
-
-// pseudorandom generator
-thread_local std::mt19937 prng_ = []{ auto seeds = generate_seeds(); return std::mt19937{seeds}; }();
+using namespace movency;
 
 
 // x to the power of non-negative integer P
@@ -162,37 +148,43 @@ auto fit()
 
       auto generate_new_peaks = [&]
       {
+        using namespace random;
+
         auto new_peaks = peaks;
 
         //if (std::ssize(new_peaks) > 0 && (std::ssize(new_peaks) > 10 || std::bernoulli_distribution(0.9)(prng_)))
-        if (new_peaks.size() > 1 && std::bernoulli_distribution(1.0 - std::pow(0.4, new_peaks.size()))(prng_))
+        //if (new_peaks.size() > 1 && std::bernoulli_distribution(1.0 - std::pow(0.4, new_peaks.size()))(prng_))
+        if (new_peaks.size() > 1 && random::fast(uniform_distribution<bool>(1.0 - std::pow(0.4, new_peaks.size()))))
         {
           // index of gaussian to alter
-          const auto change_index = std::uniform_int_distribution(0ul, new_peaks.size() - 1)(prng_);
+          const std::size_t change_index = random::fast(uniform_distribution(0ul, new_peaks.size() - 1));
 
-          if (std::bernoulli_distribution(0.25)(prng_))
+          //if (std::bernoulli_distribution(0.25)(prng_))
+          if (random::fast(uniform_distribution<bool>(0.25)))
           {
             new_peaks.erase(new_peaks.begin() + static_cast<std::int64_t>(change_index));
           }
-          else if (std::bernoulli_distribution(0.1)(prng_))
+          //else if (std::bernoulli_distribution(0.1)(prng_))
+          else if (random::fast(uniform_distribution<bool>(0.1)))
           {
-            new_peaks[change_index].position += std::uniform_real_distribution(-span/100, span/100)(prng_);
+            new_peaks[change_index].position += random::fast(uniform_distribution(-span/100, span/100));
           }
-          else if (std::bernoulli_distribution(0.5)(prng_))
+          //else if (std::bernoulli_distribution(0.5)(prng_))
+          else if (random::fast<bool>())
           {
-            new_peaks[change_index].magnitude *= std::uniform_real_distribution(0.5, 2.0)(prng_);
+            new_peaks[change_index].magnitude *= random::fast(uniform_distribution(0.5, 2.0));
           }
           else
           {
-            new_peaks[change_index].width *= std::uniform_real_distribution(0.5, 2.0)(prng_);
+            new_peaks[change_index].width *= random::fast(uniform_distribution(0.5, 2.0));
           }
         }
         else
         {
           /*
-          new_peaks.emplace_back(std::uniform_real_distribution(min, max)(prng_), 
-                                 std::uniform_real_distribution(0.0, static_cast<double>(vec.size()) * pow<2>(spread) / bucket_count)(prng_),
-                                 std::uniform_real_distribution(2.5, span)(prng_));
+          new_peaks.emplace_back(random::fast(uniform_distribution(min, max)), 
+                                 random::fast(uniform_distribution(0.0, static_cast<double>(vec.size()) * pow<2>(spread) / bucket_count)),
+                                 random::fast(uniform_distribution(2.5, span)));
                                  */
 
           const auto residuals = [&]
@@ -222,11 +214,11 @@ auto fit()
 
           double best_fit = std::numeric_limits<double>::infinity();
 
-          double best_width = std::uniform_real_distribution(2.5, span)(prng_);
+          double best_width = random::fast(uniform_distribution(2.5, span));
 
           for (auto _ = 500; _--;)
           {
-            const double width = best_width * std::uniform_real_distribution(9.0/10.0, 10.0/9.0)(prng_);
+            const double width = best_width * random::fast(uniform_distribution(9.0/10.0, 10.0/9.0));
 
             double fit{};
 

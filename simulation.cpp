@@ -1,3 +1,5 @@
+#include "timeblit/random.hpp"
+
 #include <fmt/format.h>
 #include <fmt/compile.h>
 #include <fmt/color.h>
@@ -9,29 +11,7 @@
 #include <iostream>
 #include <fstream>
 
-
-template<class T>
-concept arithmetic = std::floating_point<T> || std::integral<T>;
-
-
-
-// Create a seed sequence with enough seeds to fully initialize a std::mt19937
-[[nodiscard]] std::seed_seq generate_seeds() noexcept
-{
-  std::array<std::mt19937::result_type, std::mt19937::state_size> seeds;
-
-  std::random_device rd;
-
-  std::uniform_int_distribution<std::mt19937::result_type> dist{};
-
-  for (auto& seed : seeds)
-    seed = dist(rd);
-
-  return std::seed_seq(seeds.begin(), seeds.end());
-}
-
-
-thread_local std::mt19937 prng_ = []{ auto seeds = generate_seeds(); return std::mt19937{seeds}; }();
+using namespace movency;
 
 
 // x to the power of non-negative integer P
@@ -210,8 +190,8 @@ int main()
         ++repeats_temp;
 
         // angle of kaon motion in B meson's reference frame
-        const double phi   =           std::uniform_real_distribution<double>{0.0 , 2.0 * std::numbers::pi}(prng_);
-        const double theta = std::acos(std::uniform_real_distribution<double>{-1.0, 1.0                   }(prng_));
+        const double phi   =           random::fast(random::uniform_distribution{ 0.0, 2.0 * std::numbers::pi});
+        const double theta = std::acos(random::fast(random::uniform_distribution{-1.0, 1.0                   }));
 
         // unscaled velocity of kaon motion in B meson's reference frame
         const std::array<double, 3> v_temp{std::sin(theta) * std::cos(phi), std::sin(theta) * std::sin(phi), std::cos(theta)};

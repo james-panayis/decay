@@ -4,7 +4,8 @@ SHELL=/bin/bash
 
 CC=g++
 
-FLAGS=-std=c++20 -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include
+FLAGS=-std=c++20 -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include -DR__HAS_STD_SPAN
+# R__HAS_STD_SPAN to prevent root shoving its own span into ::std::
 
 LIBS="external/libs/libfmt.a" `root-config --libs`
 
@@ -42,12 +43,12 @@ endef
 
 #if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]] || [[ "$${HOSTNAME: -8}" = ".cern.ch" ]]; then
 
-cache/%.out: %.cpp makefile external/fmt
+cache/%.out: %.cpp makefile external/fmt external/library
 	$(prepare)
 	echo "compiling $<"
 	$(CC) $(OPT) $(FLAGS) $< $(LIBS) -o $@
 
-debug%.out: %.cpp makefile external/fmt
+debug%.out: %.cpp makefile external/fmt external/library
 	$(prepare)
 	out=$@
 	echo "compiling debug build of $<"
@@ -69,6 +70,11 @@ run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
 external/fmt: makefile external/get-fmt.sh
 	pushd external > /dev/null
 	./get-fmt.sh
+	popd > /dev/null
+
+external/library: makefile external/get-timeblit.sh
+	pushd external > /dev/null
+	./get-timeblit.sh
 	popd > /dev/null
 
 

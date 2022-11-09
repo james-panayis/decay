@@ -2,11 +2,11 @@
 
 # timeblit
 
-rm -rf library
+rm -rf timeblit
 
-git clone git@github.com:Timeblit/library.git
+git clone git@github.com:Timeblit/library.git timeblit
 
-pushd library
+pushd timeblit
 
   if [ $? != "0" ]
   then

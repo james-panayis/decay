@@ -19,6 +19,8 @@ all: $(patsubst %.cpp, cache/%.out, $(wildcard *.cpp))
 
 all-debug: $(patsubst %.cpp, debug%.out, $(wildcard *.cpp))
 
+ext=external/fmt external/timeblit
+
 define prepare = 
 	@
 	which root > /dev/null
@@ -43,12 +45,12 @@ endef
 
 #if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]] || [[ "$${HOSTNAME: -8}" = ".cern.ch" ]]; then
 
-cache/%.out: %.cpp makefile external/fmt external/library
+cache/%.out: %.cpp makefile $(ext)
 	$(prepare)
 	echo "compiling $<"
 	$(CC) $(OPT) $(FLAGS) $< $(LIBS) -o $@
 
-debug%.out: %.cpp makefile external/fmt external/library
+debug%.out: %.cpp makefile $(ext)
 	$(prepare)
 	out=$@
 	echo "compiling debug build of $<"
@@ -67,14 +69,10 @@ run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
 	echo "running graph generation on simulation data"
 	./cache/simulation_csv2graph.out
 
-external/fmt: makefile external/get-fmt.sh
+external/%: makefile external/get-%.sh
+	out=$@
 	pushd external > /dev/null
-	./get-fmt.sh
-	popd > /dev/null
-
-external/library: makefile external/get-timeblit.sh
-	pushd external > /dev/null
-	./get-timeblit.sh
+	./get-$${out:9}.sh
 	popd > /dev/null
 
 

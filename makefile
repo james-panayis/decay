@@ -9,7 +9,7 @@ FLAGS=-std=c++20 -ffunction-sections -fdata-sections -march=native -Wall -Wextra
 
 LIBS="external/libs/libfmt.a" `root-config --libs`
 
-OPT=-O3 -fomit-frame-pointer -flto
+OPT=-O3 -fomit-frame-pointer -flto=auto
 
 DBG=-Og -g -fsanitize=address,undefined -static-libasan
 
@@ -30,8 +30,8 @@ define prepare =
 			exit 1
 		fi
 	fi
-	g++ --version | awk '/GCC/ && ($3+0)<11.3{exit 1;}'
-	if [ $$? -ne 0 ]; then
+	g++ --version | awk '/GCC/ && ($$3+0)<11.3{exit 1;}'
+	if [ $$? -eq 1 ]; then
 		echo "sourcing root to get g++11.3 or later (you may want to source it to avoid this happening everytime)"
 		source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_102b x86_64-centos7-gcc12-opt
 		if [ $$? -ne 0 ]; then

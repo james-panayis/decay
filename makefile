@@ -7,7 +7,7 @@ CC=g++
 FLAGS=-std=c++20 -ffunction-sections -fdata-sections -march=native -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wstrict-aliasing=1 -Wpointer-arith -Iexternal/include -isystem /home/james/projects/cpv/root/include -DR__HAS_STD_SPAN
 # R__HAS_STD_SPAN to prevent root shoving its own span into ::std::
 
-LIBS="external/libs/libfmt.a" `root-config --libs`
+LIBS="external/libs/libfmt.a" "external/libs/libz.a" `root-config --libs`
 
 OPT=-O3 -fomit-frame-pointer -flto=auto
 
@@ -19,7 +19,7 @@ all: $(patsubst %.cpp, cache/%.out, $(wildcard *.cpp))
 
 all-debug: $(patsubst %.cpp, debug%.out, $(wildcard *.cpp))
 
-ext=external/fmt external/timeblit
+ext=external/fmt external/timeblit external/zlib
 
 define prepare = 
 	@
@@ -70,8 +70,10 @@ run-simulation: makefile cache/simulation.out cache/simulation_csv2graph.out
 	./cache/simulation_csv2graph.out
 
 external/%: makefile external/get-%.sh
+	@
 	out=$@
 	pushd external > /dev/null
+	echo "fetching $${out:9}"
 	./get-$${out:9}.sh
 	popd > /dev/null
 

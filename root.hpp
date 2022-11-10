@@ -4,6 +4,7 @@
 
 #include "fmt/format.h"
 #include "fmt/compile.h"
+#include "fmt/color.h"
 
 #include <zlib/zlib.h>
 
@@ -20,6 +21,9 @@
 
 namespace std {
 
+// c++23 std library functions (included here if not present)
+
+#ifndef __cpp_lib_byteswap
 template<movency::integral T>
 constexpr T byteswap(const T n) noexcept
 {
@@ -32,13 +36,16 @@ constexpr T byteswap(const T n) noexcept
 
   return std::bit_cast<T>(out_arr);
 }
+#endif
 
+#ifndef __cpp_lib_to_underlying
 template<class Enum>
   requires is_enum_v<Enum>
 constexpr auto to_underlying(const Enum e) noexcept
 {
   return static_cast<std::underlying_type_t<Enum>>(e);
 }
+#endif
 
 }
 
@@ -49,9 +56,11 @@ namespace root {
   // utility template to provide a uint of a fixed size
 
   template<std::size_t W>
-  using uint_of_width = std::conditional_t<(W == 1), std::uint8_t,
-                        std::conditional_t<(W == 2), std::uint16_t,
-                        std::conditional_t<(W == 4), std::uint32_t, std::uint64_t>>>;
+  using uint_of_width = std::conditional_t<W == 1, std::uint8_t,
+                        std::conditional_t<W == 2, std::uint16_t,
+                        std::conditional_t<W == 4, std::uint32_t,
+                        std::conditional_t<W == 8, std::uint64_t,
+                                                   struct invalid_size >>>>;
 
   // utility functions to read data from memory
 
@@ -203,13 +212,13 @@ namespace root {
       if (Nbytes < 0) // record is marked as deleted
         return ok;
 
-      ok &= read_from_be_and_subspan(Version,  source);
-      ok &= read_from_be_and_subspan(ObjLen,   source);
-      ok &= read_from_be_and_subspan(Datime,   source);
-      ok &= read_from_be_and_subspan(KeyLen,   source);
-      ok &= read_from_be_and_subspan(Cycle,    source);
+      ok &= read_from_be_and_subspan(Version, source);
+      ok &= read_from_be_and_subspan(ObjLen,  source);
+      ok &= read_from_be_and_subspan(Datime,  source);
+      ok &= read_from_be_and_subspan(KeyLen,  source);
+      ok &= read_from_be_and_subspan(Cycle,   source);
 
-      if (Version > 1'000)
+      if (Version > 1000)
       {
         ok &= read_from_be_and_subspan(SeekKey,  source);
         ok &= read_from_be_and_subspan(SeekPdir, source);
@@ -222,13 +231,16 @@ namespace root {
         ok &= read_from_be_and_subspan(SeekKey_u32,  source);
         ok &= read_from_be_and_subspan(SeekPdir_u32, source);
 
+        if (!ok)
+          return ok;
+
         SeekKey  = SeekKey_u32;
         SeekPdir = SeekPdir_u32;
       }
 
-      ok &= read_from_and_subspan(ClassName,   source);
-      ok &= read_from_and_subspan(Name,        source);
-      ok &= read_from_and_subspan(Title,       source);
+      ok &= read_from_and_subspan(ClassName, source);
+      ok &= read_from_and_subspan(Name,      source);
+      ok &= read_from_and_subspan(Title,     source);
 
       // Sometimes a record has more entry following Title which are part of the Key and the DATA part is after this
 
@@ -362,7 +374,7 @@ namespace root {
         return false;
       }
       
-      auto data_start = reinterpret_cast<const std::byte*>(mmap(NULL, sb.st_size, PROT_READ, MAP_SHARED, fd, 0));
+      auto data_start = reinterpret_cast<const std::byte*>(mmap(NULL, static_cast<std::size_t>(sb.st_size), PROT_READ, MAP_SHARED, fd, 0));
 
       ::close(fd);
 
@@ -576,7 +588,7 @@ namespace root {
 
     // start of parsing TFile record entries
 
-    void explore_tfile(const tkey& t) const noexcept
+    /*void explore_tfile(const tkey& t) const noexcept
     {
       if (t.Nbytes < 0)
         return;
@@ -632,7 +644,7 @@ namespace root {
           version, DatimeC, DatimeM, NbytesKeys, NbytesName, SeekDir, SeekParent, SeekKeys, UUIDver);
       else
         fmt::print("got bad TDirectory\n");
-    }
+    }*/
 
 
     // start of parsing KeysList record entries

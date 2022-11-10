@@ -43,12 +43,12 @@ int main(int argc, char* argv[])
     std::string t_str = std::string(argv[3]);
 
     if (t_str == "uint8")  t = root_type::rt_uint8;
-    if (t_str == "uint16")  t = root_type::rt_uint16;
-    if (t_str == "uint32")  t = root_type::rt_uint32;
+    if (t_str == "uint16") t = root_type::rt_uint16;
+    if (t_str == "uint32") t = root_type::rt_uint32;
     if (t_str == "uint64") t = root_type::rt_uint64;
     if (t_str == "int8")   t = root_type::rt_int8;
-    if (t_str == "int16")   t = root_type::rt_int16;
-    if (t_str == "int32")   t = root_type::rt_int32;
+    if (t_str == "int16")  t = root_type::rt_int16;
+    if (t_str == "int32")  t = root_type::rt_int32;
     if (t_str == "int64")  t = root_type::rt_int64;
     if (t_str == "float")  t = root_type::rt_float;
     if (t_str == "double") t = root_type::rt_double;

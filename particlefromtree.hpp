@@ -1,6 +1,6 @@
 #pragma once
 
-#include "TLorentzVector.h" 
+#include "Math/Vector4D.h" 
 #include "TVector3.h" 
 
 #include "TFile.h" 
@@ -18,9 +18,9 @@ public:
 
   void setTree(TTree* tree);
 
-  TLorentzVector getVec() const;
+  ROOT::Math::XYZTVector getVec() const;
 
-  TLorentzVector getHypothesis(const double M) const;
+  ROOT::Math::XYZTVector getHypothesis(const double M) const;
 
   std::string name_;
   
@@ -86,19 +86,19 @@ void Particle<T>::setTree(TTree* tree)
 }
 
 template<class T>
-TLorentzVector Particle<T>::getVec() const
+ROOT::Math::XYZTVector Particle<T>::getVec() const
 {
-  return TLorentzVector( PX_, PY_, PZ_, PE_ );
+  return ROOT::Math::XYZTVector( PX_, PY_, PZ_, PE_ );
 }
 
 
 template<class T>
-TLorentzVector 
+ROOT::Math::XYZTVector 
 Particle<T>::getHypothesis( const double M ) const
 { 
-  TLorentzVector result;
+  ROOT::Math::XYZTVector result;
 
-  result.SetXYZM( PX_, PY_, PZ_, M );
+  result.SetXYZT( PX_, PY_, PZ_, std::sqrt(PX_*PX_ + PY_*PY_ + PZ_*PZ_ + M*M) );
   
   return result;
 }

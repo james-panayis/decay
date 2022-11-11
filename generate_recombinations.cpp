@@ -1,8 +1,9 @@
 #include "TFile.h" 
 #include "TTree.h"
 #include "TH1D.h"
-#include "TLorentzVector.h" 
+#include "Math/Vector4D.h" 
 #include "TCanvas.h"
+#include "ROOT/RDataFrame.hxx"
 
 #include "particlefromtree.hpp" 
 
@@ -32,6 +33,8 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
                         const std::string treename   = "Lb_Tuple/DecayTree",
                         const std::string outputfile = "cache/mass.root" )
 { 
+  ROOT::EnableImplicitMT();
+
   const auto root_file = std::make_unique<TFile>(filename.c_str());
   const auto root_tree = std::unique_ptr<TTree>(dynamic_cast<TTree*>(root_file->Get(treename.c_str())));
 
@@ -72,7 +75,7 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
     auto for_mass = [&](const Particle<double> particle, const std::uint32_t p)
     {
       if (p == 0)
-        return TLorentzVector{};
+        return ROOT::Math::XYZTVector{};
       else
         return particle.getHypothesis(masses[p]);
     };

@@ -157,9 +157,7 @@ auto fit()
     }
   }
 
-  fmt::print("\nList read. Size: {}\n", list.size());
-
-  return;
+  fmt::print("\nList read. Size: {}\n\n", list.size());
   
 
   ROOT::RDataFrame rdf{"Masses", "cache/mass.root"};
@@ -177,12 +175,65 @@ auto fit()
   //for (int n = 0; n < std::ssize(vecs); ++n)
   auto loop = [&]
   {
+    enum class daughter {z, e, mu, pi, k, p};
+
+    auto get_daughters = [](const std::string_view name)
+    {
+      std::size_t i = 0;
+
+      std::array<daughter, 4> daughters;
+
+      //for (std::size_t d_num = 0; d_num < 4; ++d_num)
+      for (auto& d : daughters)
+      {
+        switch (name[i])
+        {
+          case '0': d = daughter::z;       break;
+          case 'e': d = daughter::e;       break;
+          case 'k': d = daughter::k;       break;
+          case 'm': d = daughter::mu; ++i; break;
+          case 'p':
+                    if (i + 1 != name.size() && name[i + 1] == 'i')
+                    {
+                      d = daughter::pi;
+                      ++i;
+                    }
+                    else
+                      d = daughter::p;
+                    break;
+          default:
+                    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character #{} in column {}\n", i, name);
+        }
+
+        i += 2;
+      }
+
+      return daughters;
+    };
+
     while (true)
     {
       auto n = next.fetch_add(1, std::memory_order_relaxed);
 
       if (n >= cols.size())
         return;
+
+      const auto daughters = get_daughters(cols[n]);
+
+      int daughter_count = 0;
+
+      for (auto d : daughters)
+      {
+        if (d != daughter::z)
+          ++daughter_count;
+      }
+
+      if (daughter_count <= 1)
+      {
+        fmt::print("Skipping due to too few particles: {}\n", cols[n]);
+
+        continue;
+      }
 
       fmt::print("about to read variable: {}\n", cols[n]);
 

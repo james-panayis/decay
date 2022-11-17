@@ -61,7 +61,7 @@ struct particle_info
 {
   std::string name;
   double      mass;
-  bool        charge; // true means +-1; false means 0
+  //bool        charge; // true means +-1; false means 0
   //bool        even;   // true means even number of quarks 
   //double      width;
 };
@@ -77,7 +77,8 @@ struct fmt::formatter<particle_info>
   template<class FormatContext>
   auto format(const particle_info& p, FormatContext& ctx)
   {
-    return fmt::format_to(ctx.out(), FMT_COMPILE("{} {} {}"), p.name, p.charge ? 1 : 0, p.mass);
+    //return fmt::format_to(ctx.out(), FMT_COMPILE("{} {} {}"), p.name, p.charge ? 1 : 0, p.mass);
+    return fmt::format_to(ctx.out(), FMT_COMPILE("{} {}"), p.name, p.mass);
   }
 };
 
@@ -86,7 +87,8 @@ auto fit()
 {
   //ROOT::EnableImplicitMT(); // Breaks saving of graphs (causes seperate (inaccessible???) canvases for each(?) thread)
 
-  std::vector<particle_info> list;
+  // first list has particles of charge 0; second has particles of charge +-1
+  std::array<std::vector<particle_info>, 2> lists;
 
   {
     std::ifstream in("../data/ParticleTable.txt");
@@ -140,24 +142,23 @@ auto fit()
         return out * 1000.0;
       }();
 
-      if (list.size() != 0)
+      if (charge && lists[charge].size() != 0)
       {
-        const auto prev = list.back();
+        const auto prev = lists[charge].back();
       
         if (   name.substr(0, name.size() - 1) == prev.name.substr(0, prev.name.size() - 1)
             && name.back() != prev.name.back()
-            && charge == prev.charge
             && mass == prev.mass)
           continue; // same particle with opposite charge
       }
 
-      list.emplace_back(name, mass, charge);
+      lists[charge].emplace_back(name, mass);
 
-      fmt::print("{}\n", list.back());
+      fmt::print("{}\n", lists[charge].back());
     }
   }
 
-  fmt::print("\nList read. Size: {}\n\n", list.size());
+  fmt::print("\nLists created. Sizes(charge): {}(0) {}(+-1)\n\n", lists[0].size(), lists[1].size());
   
 
   ROOT::RDataFrame rdf{"Masses", "cache/mass.root"};
@@ -442,14 +443,17 @@ auto fit()
       //for (const peak_t& peak : peaks)
         //fmt::print("{}\n", peak);
 
+      bool charge = daughter_count % 2;
+
       std::ranges::sort(peaks, std::ranges::greater{}, [](const peak_t peak){return peak.magnitude / peak.width;} );
 
       for (const peak_t& peak : peaks)
       {
-        fmt::print("{}\n", peak.position);
+        //fmt::print("{}\n", peak.position);
 
-        //std::ranges::max_element(list, std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);});
-        fmt::print("{}\n\n", std::ranges::min(list, std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);}));
+        //std::ranges::max_element(lists[charge], std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);});
+
+        fmt::print("{}  (peak {})\n", std::ranges::min(lists[charge], std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);}), peak.position);
       }
 
       {

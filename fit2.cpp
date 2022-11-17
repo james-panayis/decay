@@ -137,7 +137,7 @@ auto fit()
 
         std::from_chars(line.data() + i, line.data() + 62, out);
 
-        return out;
+        return out * 1000.0;
       }();
 
       if (list.size() != 0)
@@ -220,13 +220,16 @@ auto fit()
 
       const auto daughters = get_daughters(cols[n]);
 
-      int daughter_count = 0;
-
-      for (auto d : daughters)
+      const int daughter_count = [&]
       {
-        if (d != daughter::z)
-          ++daughter_count;
-      }
+        int out{0};
+
+        for (const auto d : daughters)
+          if (d != daughter::z)
+            ++out;
+
+        return out;
+      }();
 
       if (daughter_count <= 1)
       {
@@ -434,11 +437,20 @@ auto fit()
         peaks = std::move(new_peaks);
       }
 
-      fmt::print("{} peaks:\n", peaks.size());
+      fmt::print("finished fitting gaussians to {}, with {} peaks:\n", cols[n],  peaks.size());
+
+      //for (const peak_t& peak : peaks)
+        //fmt::print("{}\n", peak);
+
+      std::ranges::sort(peaks, std::ranges::greater{}, [](const peak_t peak){return peak.magnitude / peak.width;} );
 
       for (const peak_t& peak : peaks)
-        fmt::print("{}\n", peak);
+      {
+        fmt::print("{}\n", peak.position);
 
+        //std::ranges::max_element(list, std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);});
+        fmt::print("{}\n\n", std::ranges::min(list, std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);}));
+      }
 
       {
         const std::scoped_lock lock(canvas_mutex);
@@ -513,6 +525,8 @@ auto fit()
 
           mgraph.Add(graph.release());
         }
+
+        mgraph.SetTitle(cols[n].c_str());
 
         mgraph.Draw("a");
 

@@ -63,7 +63,7 @@ struct particle_info
   double      mass;
   //bool        charge; // true means +-1; false means 0
   //bool        even;   // true means even number of quarks 
-  //double      width;
+  double      width;
 };
 
 template <>
@@ -78,7 +78,8 @@ struct fmt::formatter<particle_info>
   auto format(const particle_info& p, FormatContext& ctx)
   {
     //return fmt::format_to(ctx.out(), FMT_COMPILE("{} {} {}"), p.name, p.charge ? 1 : 0, p.mass);
-    return fmt::format_to(ctx.out(), FMT_COMPILE("{} {}"), p.name, p.mass);
+    //return fmt::format_to(ctx.out(), FMT_COMPILE("{} {}"), p.name, p.mass);
+    return fmt::format_to(ctx.out(), FMT_COMPILE("{} {} {}"), p.name, p.mass, p.width);
   }
 };
 
@@ -88,9 +89,10 @@ auto fit()
   //ROOT::EnableImplicitMT(); // Breaks saving of graphs (causes seperate (inaccessible???) canvases for each(?) thread)
 
   // first list has particles of charge 0; second has particles of charge +-1
-  std::array<std::vector<particle_info>, 2> lists;
-
+  const auto lists = []
   {
+    std::array<std::vector<particle_info>, 2> out_lists;
+
     std::ifstream in("../data/ParticleTable.txt");
 
     std::string line;
@@ -142,9 +144,23 @@ auto fit()
         return out * 1000.0;
       }();
 
-      if (charge && lists[charge].size() != 0)
+      const double width = [&]
       {
-        const auto prev = lists[charge].back();
+        double out;
+
+        std::size_t i = 61;
+
+        while (i != size && line[i] == ' ')
+          ++i;
+
+        std::from_chars(line.data() + i, line.data() + 62, out);
+
+        return 6.582119569 * pow<16>(0.1) / out / 1'000'000.0; //hbar in eVs
+      }();
+
+      if (charge && out_lists[charge].size() != 0)
+      {
+        const auto prev = out_lists[charge].back();
       
         if (   name.substr(0, name.size() - 1) == prev.name.substr(0, prev.name.size() - 1)
             && name.back() != prev.name.back()
@@ -152,11 +168,13 @@ auto fit()
           continue; // same particle with opposite charge
       }
 
-      lists[charge].emplace_back(name, mass);
+      out_lists[charge].emplace_back(name, mass, width);
 
-      fmt::print("{}\n", lists[charge].back());
+      fmt::print("{}\n", out_lists[charge].back());
     }
-  }
+
+    return out_lists;
+  }();
 
   fmt::print("\nLists created. Sizes(charge): {}(0) {}(+-1)\n\n", lists[0].size(), lists[1].size());
   
@@ -447,13 +465,39 @@ auto fit()
 
       std::ranges::sort(peaks, std::ranges::greater{}, [](const peak_t peak){return peak.magnitude / peak.width;} );
 
+      auto local_list = lists[charge];
+
+      std::vector<std::string> particles_so_far{};
+
       for (const peak_t& peak : peaks)
       {
+        if (peak.magnitude / peak.width < 50)
+          break;
+
         //fmt::print("{}\n", peak.position);
 
         //std::ranges::max_element(lists[charge], std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);});
 
-        fmt::print("{}  (peak {})\n", std::ranges::min(lists[charge], std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);}), peak.position);
+        std::ranges::sort(local_list, std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
+
+        //const auto particle = std::ranges::min(lists[charge], std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
+
+        for (const particle_info& particle : local_list)
+        {
+          if (particle.width != std::numeric_limits<double>::infinity() && particle.width * 0.9 > peak.width * 1.665109)
+            continue; // peak too thin given particle width
+
+          if (std::abs(peak.position - particle.mass) > 125)
+            break;
+
+          //if (particles_so_far.contains(p.name))
+          if (std::ranges::find(particles_so_far, particle.name) != particles_so_far.end())
+            continue;
+
+          particles_so_far.push_back(particle.name);
+
+          fmt::print("{}  (peak {}) dist {}\n", particle, peak, std::abs(peak.position - particle.mass));
+        }
       }
 
       {

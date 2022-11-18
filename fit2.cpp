@@ -1,6 +1,7 @@
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TMultiGraph.h"
+#include "TLatex.h"
 #include "ROOT/RDataFrame.hxx"
 
 #include "timeblit/random.hpp"
@@ -440,7 +441,8 @@ auto fit()
 
       double best_fit{std::numeric_limits<double>::infinity()};
 
-      for (int i = 0; i < 50000; ++i)
+      for (int i = 0; i < 75000; ++i)
+      //for (int i = 0; i < 50000; ++i)
       //for (int i = 0; i < 200000; ++i)
       //for (int i = 0; i < 5000; ++i)
       {
@@ -469,6 +471,9 @@ auto fit()
 
       std::vector<std::string> particles_so_far{};
 
+      std::vector<std::pair<std::size_t, std::string>> annotations{};
+
+      int j = 0;
       for (const peak_t& peak : peaks)
       {
         if (peak.magnitude / peak.width < 50)
@@ -482,6 +487,8 @@ auto fit()
 
         //const auto particle = std::ranges::min(lists[charge], std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
 
+        bool annotated = false;
+
         for (const particle_info& particle : local_list)
         {
           if (particle.width != std::numeric_limits<double>::infinity() && particle.width * 0.9 > peak.width * 1.665109)
@@ -494,10 +501,20 @@ auto fit()
           if (std::ranges::find(particles_so_far, particle.name) != particles_so_far.end())
             continue;
 
+          if (!annotated)
+            if (peak.magnitude / peak.width > 150)
+              if (std::abs(peak.position - particle.mass) < 40)
+              {
+                annotations.emplace_back(j, particle.name);
+
+                annotated = true;
+              }
+
           particles_so_far.push_back(particle.name);
 
           fmt::print("{}  (peak {}) dist {}\n", particle, peak, std::abs(peak.position - particle.mass));
         }
+        ++j;
       }
 
       {
@@ -557,9 +574,13 @@ auto fit()
             graph->AddPoint(dist_vals[i], peak.magnitude * std::exp(-pow<2>(offset)));
           }
 
+          //TLatex* latex = new TLatex(graph->GetX()[100], graph->GetY()[100], "test");
+          //graph->GetListOfFunctions()->Add(latex);
+
           mgraph.Add(graph.release());
         }
 
+        int i = 0;
         // graph marking centers of underlying gaussians
         for (const peak_t& peak : peaks)
         {
@@ -571,7 +592,17 @@ auto fit()
           graph->AddPoint(peak.position, 0);
           graph->AddPoint(peak.position, peak.magnitude);
 
+          for (auto annotation : annotations)
+          {
+            if (annotation.first == i)
+            {
+              auto latex = std::make_unique<TLatex>(graph->GetX()[1], graph->GetY()[1], annotation.second.c_str());
+              graph->GetListOfFunctions()->Add(latex.release());
+            }
+          }
+
           mgraph.Add(graph.release());
+          ++i;
         }
 
         mgraph.SetTitle(cols[n].c_str());

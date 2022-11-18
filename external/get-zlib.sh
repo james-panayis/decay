@@ -2,7 +2,7 @@
 
 # zlib
 
-rm -rf zlib-1.2.13
+rm -rf zlib*
 
 wget https://zlib.net/zlib-1.2.13.tar.gz
 

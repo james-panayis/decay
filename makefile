@@ -12,6 +12,7 @@ LIBS="external/libs/libfmt.a" "external/libs/libz.a" `root-config --libs`
 OPT=-O3 -fomit-frame-pointer -flto=auto
 
 DBG=-Og -g -fsanitize=address,undefined -static-libasan
+#DBG=-Og -g -fsanitize=address,undefined -static-libasan -fanalyzer
 
 .PHONY: clean
 

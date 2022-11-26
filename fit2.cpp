@@ -171,7 +171,7 @@ auto fit()
 
       out_lists[charge].emplace_back(name, mass, width);
 
-      fmt::print("{}\n", out_lists[charge].back());
+      //fmt::print("{}\n", out_lists[charge].back());
     }
 
     return out_lists;
@@ -318,63 +318,164 @@ auto fit()
 
       auto generate_new_peaks = [&]
       {
-        using namespace random;
-
         auto new_peaks = peaks;
+
+        auto calculate_residuals = [&]<bool ignore = false>(const std::size_t ignore_index = 0)
+        {
+          std::array<double, bucket_count> out;
+
+          for (std::size_t i = 0; i < out.size(); ++i)
+          {
+            out[i] = distribution[i];
+
+            for (std::size_t j = 0; j < new_peaks.size(); ++j)
+            {
+              if constexpr (ignore)
+                if (j == ignore_index)
+                  continue;
+
+              const double offset = std::abs(new_peaks[j].position - dist_vals[i]) / new_peaks[j].width;
+
+              out[i] -= new_peaks[j].magnitude * std::exp(-pow<2>(offset));
+            }
+          }
+
+          return out;
+        };
+
+        auto calculate_fit = [&](const std::array<double, bucket_count>& residuals, const peak_t peak = {0,0,0})
+        {
+          double fit{};
+
+          for (std::uint32_t i = 0; i < bucket_count; ++i)
+          {
+            const double offset = std::abs(peak.position - dist_vals[i]) / peak.width;
+
+            const double val = peak.magnitude * std::exp(-pow<2>(offset));
+
+            fit += pow<2>(val - residuals[i]);
+          }
+
+          return fit;
+        };
+
+        using namespace random;
 
         //if (std::ssize(new_peaks) > 0 && (std::ssize(new_peaks) > 10 || std::bernoulli_distribution(0.9)(prng_)))
         //if (new_peaks.size() > 1 && std::bernoulli_distribution(1.0 - std::pow(0.4, new_peaks.size()))(prng_))
-        if (new_peaks.size() > 1 && random::fast(uniform_distribution<bool>(1.0 - std::pow(0.4, new_peaks.size()))))
+        if (new_peaks.size() > 1 && random::fast(uniform_distribution<bool>(1.0 - std::pow(0.666, new_peaks.size()))))
         {
-          // index of gaussian to alter
+          // which peak to alter
           const std::size_t change_index = random::fast(uniform_distribution(0ul, new_peaks.size() - 1));
 
-          //if (std::bernoulli_distribution(0.25)(prng_))
-          if (random::fast(uniform_distribution<bool>(0.25)))
+          peak_t cpeak = new_peaks[change_index];
+
+          // difference between distribution and all peaks excluding the one currently under alteration
+          const auto residuals{calculate_residuals.template operator()<true>(change_index)};
+
+          double prev_fit = calculate_fit(residuals, cpeak);
+          double new_fit  = calculate_fit(residuals);
+
+          auto optimize_variable = [&]<std::uint32_t var>(double factor)
           {
+            for (auto _ = 20; _--;)
+            {
+              const double fit0 = calculate_fit(residuals, cpeak);
+              double fit1;
+              double fit2;
+
+              double& variable = var == 0 ? cpeak.position : var == 1 ? cpeak.magnitude : cpeak.width;
+
+              if constexpr (var == 0)
+              {
+                fit1 = calculate_fit(residuals, {cpeak.position + factor, cpeak.magnitude, cpeak.width});
+                fit2 = calculate_fit(residuals, {cpeak.position + factor + factor, cpeak.magnitude, cpeak.width});
+              }
+              else if constexpr (var == 1)
+              {
+                fit1 = calculate_fit(residuals, {cpeak.position, cpeak.magnitude * factor, cpeak.width});
+                fit2 = calculate_fit(residuals, {cpeak.position, cpeak.magnitude * factor * factor, cpeak.width});
+              }
+              else if constexpr (var == 2)
+              {
+                fit1 = calculate_fit(residuals, {cpeak.position, cpeak.magnitude, cpeak.width * factor});
+                fit2 = calculate_fit(residuals, {cpeak.position, cpeak.magnitude, cpeak.width * factor * factor});
+              }
+              //fmt::print("fits:  {}   {}   {}\n", fit0, fit1, fit2);
+              //fmt::print("{}  :  {}   {}   {}    ({})\n", var, variable, variable * factor, variable * factor * factor, factor);
+
+              if (fit1 < fit0 && fit1 < fit2)
+              {
+                if (fit2 < fit0)
+                {
+                  if constexpr (var == 0)
+                    variable += factor;
+                  else
+                    variable *= factor;
+                }
+
+                if constexpr (var == 0)
+                  factor *= 0.5;
+                else
+                  factor = std::sqrt(factor);
+              }
+              else
+              {
+                if (fit1 > fit2 && fit1 > fit0)
+                  break;
+
+                if (fit0 < fit2)
+                {
+                  if constexpr (var == 0)
+                    variable -= factor;
+                  else
+                    variable /= factor;
+                }
+
+                if constexpr (var == 0)
+                  factor *= 1.5;
+                else
+                  factor = std::pow(factor, 1.5);
+              }
+            }
+
+            //new_peaks[change_index].position = cpeak.position;
+            new_peaks[change_index] = cpeak;
+
+            return;
+          };
+
+          if (new_fit < prev_fit)
+          {
+            //fmt::print("era\n");
             new_peaks.erase(new_peaks.begin() + static_cast<std::int64_t>(change_index));
           }
-          //else if (std::bernoulli_distribution(0.1)(prng_))
-          else if (random::fast(uniform_distribution<bool>(0.1)))
+          else if (random::fast(uniform_distribution<bool>(0.25)))
           {
-            new_peaks[change_index].position += random::fast(uniform_distribution(-span/100, span/100));
+            //fmt::print("0\n");
+            optimize_variable.template operator()<0>(random::fast(uniform_distribution(-span/500, span/500)));
           }
-          //else if (std::bernoulli_distribution(0.5)(prng_))
           else if (random::fast<bool>())
           {
-            new_peaks[change_index].magnitude *= random::fast(uniform_distribution(0.5, 2.0));
+            //fmt::print("1\n");
+            optimize_variable.template operator()<1>(random::fast(uniform_distribution(0.5, 1.5)));
           }
           else
           {
-            new_peaks[change_index].width *= random::fast(uniform_distribution(0.5, 2.0));
+            //fmt::print("2\n");
+            optimize_variable.template operator()<2>(random::fast(uniform_distribution(0.5, 1.5)));
           }
         }
         else
         {
+            //fmt::print("new\n");
           /*
           new_peaks.emplace_back(random::fast(uniform_distribution(min, max)), 
                                  random::fast(uniform_distribution(0.0, static_cast<double>(vec.size()) * pow<2>(spread) / bucket_count)),
                                  random::fast(uniform_distribution(2.5, span)));
                                  */
 
-          const auto residuals = [&]
-          {
-            std::array<double, bucket_count> out;
-
-            for (std::uint32_t i = 0; i < out.size(); ++i)
-            {
-              out[i] = distribution[i];
-
-              for (const peak_t& peak : new_peaks)
-              {
-                const double offset = std::abs(peak.position - dist_vals[i]) / peak.width;
-
-                out[i] -= peak.magnitude * std::exp(-pow<2>(offset));
-              }
-            }
-
-            return out;
-          }();
+          const auto residuals{calculate_residuals()};
 
           const auto max_idx = static_cast<std::uint32_t>(std::max_element(residuals.begin(), residuals.end()) - residuals.begin());
 
@@ -390,16 +491,7 @@ auto fit()
           {
             const double width = best_width * random::fast(uniform_distribution(9.0/10.0, 10.0/9.0));
 
-            double fit{};
-
-            for (std::uint32_t i = 0; i < bucket_count; ++i)
-            {
-              const double offset = std::abs(position - dist_vals[i]) / width;
-
-              const double val = magnitude * std::exp(-pow<2>(offset));
-
-              fit += pow<2>(val - residuals[i]);
-            }
+            double fit{calculate_fit(residuals, {position, magnitude, width})};
 
             if (fit < best_fit)
             {
@@ -410,7 +502,8 @@ auto fit()
           }
 
           if (best_fit == std::numeric_limits<double>::infinity())
-            fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: no change in best_fit when attempting to add a new curve\n");
+            //fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: no change in best_fit when attempting to add a new curve\n");
+          {}
           else
             new_peaks.emplace_back(position, magnitude, best_width);
         }
@@ -418,7 +511,7 @@ auto fit()
         return new_peaks;
       };
 
-      auto evaluate_fit = [&](const auto new_peaks)
+      /*auto evaluate_fit = [&](const auto new_peaks)
       {
         double fit{};
 
@@ -437,25 +530,31 @@ auto fit()
         }
 
         return fit;
-      };
+      };*/
 
-      double best_fit{std::numeric_limits<double>::infinity()};
+      //double best_fit{std::numeric_limits<double>::infinity()};
 
-      for (int i = 0; i < 75000; ++i)
+      for (int i = 0; i < 750; ++i)
+      //for (int i = 0; i < 50000; ++i)
+      //for (int i = 0; i < 75000; ++i)
       //for (int i = 0; i < 50000; ++i)
       //for (int i = 0; i < 200000; ++i)
       //for (int i = 0; i < 5000; ++i)
       {
         const auto new_peaks = generate_new_peaks();
 
-        const double new_fit = evaluate_fit(new_peaks);
+        //const double new_fit = evaluate_fit(new_peaks);
 
-        if (new_fit >= best_fit)
-          continue;
+        //if (new_fit <= best_fit)
+        //{
+          //fmt::print("   ***  {}    {}\n", new_fit, best_fit);
+          //best_fit = new_fit;
 
-        best_fit = new_fit;
+          peaks = std::move(new_peaks);
+        //}
+        //else
+          //fmt::print("***     {}    {}\n", new_fit, best_fit);
 
-        peaks = std::move(new_peaks);
       }
 
       fmt::print("finished fitting gaussians to {}, with {} peaks:\n", cols[n],  peaks.size());
@@ -502,8 +601,8 @@ auto fit()
             continue;
 
           if (!annotated)
-            if (peak.magnitude / peak.width > 150)
-              if (std::abs(peak.position - particle.mass) < 40)
+            if (peak.magnitude / peak.width > 175)
+              if (std::abs(peak.position - particle.mass) < 75)
               {
                 annotations.emplace_back(j, particle.name);
 
@@ -580,7 +679,7 @@ auto fit()
           mgraph.Add(graph.release());
         }
 
-        int i = 0;
+        std::uint64_t i = 0;
         // graph marking centers of underlying gaussians
         for (const peak_t& peak : peaks)
         {
@@ -620,6 +719,7 @@ auto fit()
     std::vector<std::jthread> loop_threads{};
 
     for (std::uint32_t i = 1; i < std::thread::hardware_concurrency(); ++i)
+    //for (std::uint32_t i = 1; i < 2; ++i)
       loop_threads.emplace_back(loop);
 
     fmt::print("Spawned {} threads.\n", loop_threads.size());

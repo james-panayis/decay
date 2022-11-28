@@ -316,10 +316,8 @@ auto fit()
 
       std::vector<peak_t> peaks{};
 
-      auto generate_new_peaks = [&]
+      for (auto _l = 750; _l--;)
       {
-        auto new_peaks = peaks;
-
         auto calculate_residuals = [&]<bool ignore = false>(const std::size_t ignore_index = 0)
         {
           std::array<double, bucket_count> out;
@@ -328,15 +326,15 @@ auto fit()
           {
             out[i] = distribution[i];
 
-            for (std::size_t j = 0; j < new_peaks.size(); ++j)
+            for (std::size_t j = 0; j < peaks.size(); ++j)
             {
               if constexpr (ignore)
                 if (j == ignore_index)
                   continue;
 
-              const double offset = std::abs(new_peaks[j].position - dist_vals[i]) / new_peaks[j].width;
+              const double offset = std::abs(peaks[j].position - dist_vals[i]) / peaks[j].width;
 
-              out[i] -= new_peaks[j].magnitude * std::exp(-pow<2>(offset));
+              out[i] -= peaks[j].magnitude * std::exp(-pow<2>(offset));
             }
           }
 
@@ -361,14 +359,14 @@ auto fit()
 
         using namespace random;
 
-        //if (std::ssize(new_peaks) > 0 && (std::ssize(new_peaks) > 10 || std::bernoulli_distribution(0.9)(prng_)))
-        //if (new_peaks.size() > 1 && std::bernoulli_distribution(1.0 - std::pow(0.4, new_peaks.size()))(prng_))
-        if (new_peaks.size() > 1 && random::fast(uniform_distribution<bool>(1.0 - std::pow(0.666, new_peaks.size()))))
+        //if (std::ssize(peaks) > 0 && (std::ssize(peaks) > 10 || std::bernoulli_distribution(0.9)(prng_)))
+        //if (peaks.size() > 1 && std::bernoulli_distribution(1.0 - std::pow(0.4, peaks.size()))(prng_))
+        if (peaks.size() > 1 && random::fast(uniform_distribution<bool>(1.0 - std::pow(0.666, peaks.size()))))
         {
           // which peak to alter
-          const std::size_t change_index = random::fast(uniform_distribution(0ul, new_peaks.size() - 1));
+          const std::size_t change_index = random::fast(uniform_distribution(0ul, peaks.size() - 1));
 
-          peak_t cpeak = new_peaks[change_index];
+          peak_t cpeak = peaks[change_index];
 
           // difference between distribution and all peaks excluding the one currently under alteration
           const auto residuals{calculate_residuals.template operator()<true>(change_index)};
@@ -439,38 +437,33 @@ auto fit()
               }
             }
 
-            //new_peaks[change_index].position = cpeak.position;
-            new_peaks[change_index] = cpeak;
+            //peaks[change_index].position = cpeak.position;
+            peaks[change_index] = cpeak;
 
             return;
           };
 
           if (new_fit < prev_fit)
           {
-            //fmt::print("era\n");
-            new_peaks.erase(new_peaks.begin() + static_cast<std::int64_t>(change_index));
+            peaks.erase(peaks.begin() + static_cast<std::int64_t>(change_index));
           }
           else if (random::fast(uniform_distribution<bool>(0.25)))
           {
-            //fmt::print("0\n");
             optimize_variable.template operator()<0>(random::fast(uniform_distribution(-span/500, span/500)));
           }
           else if (random::fast<bool>())
           {
-            //fmt::print("1\n");
             optimize_variable.template operator()<1>(random::fast(uniform_distribution(0.5, 1.5)));
           }
           else
           {
-            //fmt::print("2\n");
             optimize_variable.template operator()<2>(random::fast(uniform_distribution(0.5, 1.5)));
           }
         }
         else
         {
-            //fmt::print("new\n");
           /*
-          new_peaks.emplace_back(random::fast(uniform_distribution(min, max)), 
+          peaks.emplace_back(random::fast(uniform_distribution(min, max)), 
                                  random::fast(uniform_distribution(0.0, static_cast<double>(vec.size()) * pow<2>(spread) / bucket_count)),
                                  random::fast(uniform_distribution(2.5, span)));
                                  */
@@ -505,56 +498,8 @@ auto fit()
             //fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: no change in best_fit when attempting to add a new curve\n");
           {}
           else
-            new_peaks.emplace_back(position, magnitude, best_width);
+            peaks.emplace_back(position, magnitude, best_width);
         }
-
-        return new_peaks;
-      };
-
-      /*auto evaluate_fit = [&](const auto new_peaks)
-      {
-        double fit{};
-
-        for (std::uint32_t i = 0; i < distribution.size(); ++i)
-        {
-          double val{};
-
-          for (const peak_t& peak : new_peaks)
-          {
-            const double offset = std::abs(peak.position - dist_vals[i]) / peak.width;
-
-            val += peak.magnitude * std::exp(-pow<2>(offset));
-          }
-
-          fit += pow<2>(val - distribution[i]);
-        }
-
-        return fit;
-      };*/
-
-      //double best_fit{std::numeric_limits<double>::infinity()};
-
-      for (int i = 0; i < 750; ++i)
-      //for (int i = 0; i < 50000; ++i)
-      //for (int i = 0; i < 75000; ++i)
-      //for (int i = 0; i < 50000; ++i)
-      //for (int i = 0; i < 200000; ++i)
-      //for (int i = 0; i < 5000; ++i)
-      {
-        const auto new_peaks = generate_new_peaks();
-
-        //const double new_fit = evaluate_fit(new_peaks);
-
-        //if (new_fit <= best_fit)
-        //{
-          //fmt::print("   ***  {}    {}\n", new_fit, best_fit);
-          //best_fit = new_fit;
-
-          peaks = std::move(new_peaks);
-        //}
-        //else
-          //fmt::print("***     {}    {}\n", new_fit, best_fit);
-
       }
 
       fmt::print("finished fitting gaussians to {}, with {} peaks:\n", cols[n],  peaks.size());
@@ -570,21 +515,17 @@ auto fit()
 
       std::vector<std::string> particles_so_far{};
 
-      std::vector<std::pair<std::size_t, std::string>> annotations{};
+      // list of peak indexes requiring annotation, and their names
+      std::vector<std::pair<std::uint32_t, std::string>> annotations{};
 
-      int j = 0;
-      for (const peak_t& peak : peaks)
+      for (std::uint32_t j = 0; j < peaks.size(); ++j)
       {
+        const peak_t& peak = peaks[j];
+
         if (peak.magnitude / peak.width < 50)
           break;
 
-        //fmt::print("{}\n", peak.position);
-
-        //std::ranges::max_element(lists[charge], std::ranges::less{}, [&](const particle_info particle){return std::abs(peak.position - particle.mass);});
-
         std::ranges::sort(local_list, std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
-
-        //const auto particle = std::ranges::min(lists[charge], std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
 
         bool annotated = false;
 
@@ -613,7 +554,6 @@ auto fit()
 
           fmt::print("{}  (peak {}) dist {}\n", particle, peak, std::abs(peak.position - particle.mass));
         }
-        ++j;
       }
 
       {
@@ -679,10 +619,11 @@ auto fit()
           mgraph.Add(graph.release());
         }
 
-        std::uint64_t i = 0;
-        // graph marking centers of underlying gaussians
-        for (const peak_t& peak : peaks)
+        // graph marking centers of underlying gaussians (some with annotation labels)
+        for (std::uint32_t i = 0; i < peaks.size(); ++i)
         {
+          const peak_t& peak = peaks[i];
+
           auto graph{std::make_unique<TGraph>()};
 
           graph->SetLineColor(kBlack);
@@ -701,7 +642,6 @@ auto fit()
           }
 
           mgraph.Add(graph.release());
-          ++i;
         }
 
         mgraph.SetTitle(cols[n].c_str());

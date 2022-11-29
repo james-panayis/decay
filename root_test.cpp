@@ -63,7 +63,7 @@ int main(int argc, char* argv[])
   else
     t = root_type::rt_double;
 
-  movency::root::file r(path);
+  const movency::root::file r(path);
 
   if (!r.ok())
   {
@@ -79,8 +79,6 @@ int main(int argc, char* argv[])
 
     return EXIT_SUCCESS;
   }
-
-  r.load_index(); // need to do this once (scans more/or/less the root file )-; could store this to another file and reuse...
 
   if (name == "--list")
   {

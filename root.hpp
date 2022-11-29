@@ -296,6 +296,8 @@ namespace root {
       
       if (src[0] == 'Z' && src[1] == 'S' && src[2] == 1)
         return engine::zstd;
+
+      //fmt::print("*******{} {} {}\n\n", src[0], src[1], src[2]);
       
       return engine::none;
     }
@@ -305,6 +307,7 @@ namespace root {
     {
       if (source.size() < SIZE)
       {
+        //fmt::print("******* size: {}\n\n", source.size());
         e = engine::none;
         return false;
       }
@@ -332,6 +335,8 @@ namespace root {
     file(std::string path) noexcept
     {
       open(path);
+
+      load_index();
     }
 
 
@@ -400,34 +405,6 @@ namespace root {
     tkey load_tkey(std::uint64_t pos) const noexcept
     {
       return tkey(file_, pos);
-    }
-
-
-    bool load_index() noexcept
-    {
-      std::uint64_t pos = h_.fBEGIN;
-
-      auto t = load_tkey(pos);
-      
-      while (t.ok)
-      {
-        if (t.ClassName == "TBasket")
-        {
-          auto& m = baskets_[std::string{t.Name}];
-
-          m.cycles[t.Cycle] = t.base;
-          m.total_bytes    += t.ObjLen;
-        }
-
-        pos += static_cast<std::uint64_t>(abs(t.Nbytes)); // -ve indicates a deleted entry
-        
-        if (pos >= size())
-          return true;
-      
-        t = load_tkey(pos);
-      }
-
-      return false;
     }
 
 
@@ -517,8 +494,8 @@ namespace root {
 
       if (h.e == compress_header::engine::zlib)
       {
-        err = ::uncompress(reinterpret_cast<unsigned char*>(dest.data()), &dest_len,
-                           reinterpret_cast<const unsigned char*>(src.data()), src.size());
+        err = ::uncompress(reinterpret_cast<      unsigned char*>(dest.data()), &dest_len,
+                           reinterpret_cast<const unsigned char*>( src.data()), src.size());
       }
       else
       {
@@ -700,6 +677,34 @@ namespace root {
 
 
   private:
+
+
+    bool load_index() noexcept // need to do this once (scans more/or/less the root file )-; could store this to another file and reuse...
+    {
+      std::uint64_t pos = h_.fBEGIN;
+
+      auto t = load_tkey(pos);
+      
+      while (t.ok)
+      {
+        if (t.ClassName == "TBasket")
+        {
+          auto& m = baskets_[std::string{t.Name}];
+
+          m.cycles[t.Cycle] = t.base;
+          m.total_bytes    += t.ObjLen;
+        }
+
+        pos += static_cast<std::uint64_t>(abs(t.Nbytes)); // -ve indicates a deleted entry
+        
+        if (pos >= size())
+          return true;
+      
+        t = load_tkey(pos);
+      }
+
+      return false;
+    }
 
 
     std::string path_;

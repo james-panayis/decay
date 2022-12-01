@@ -4,7 +4,6 @@
 #include "TGraph.h"
 #include "TMultiGraph.h"
 #include "TLatex.h"
-#include "ROOT/RDataFrame.hxx"
 
 #include "timeblit/random.hpp"
 
@@ -14,6 +13,7 @@
 
 #include <memory>
 #include <thread>
+#include <mutex>
 #include <array>
 #include <algorithm>
 #include <fstream>
@@ -87,106 +87,148 @@ struct fmt::formatter<particle_info>
 };
 
 
-auto fit()
+// Read file with list of particle information, and return two lists (for particles with 0 and +-1 charge)
+auto generate_particle_lists(const std::string filepath)
 {
-  //ROOT::EnableImplicitMT(); // Breaks saving of graphs (causes seperate (inaccessible???) canvases for each(?) thread)
+  std::array<std::vector<particle_info>, 2> lists;
 
-  // first list has particles of charge 0; second has particles of charge +-1
-  const auto lists = []
+  std::ifstream in(filepath);
+
+  std::string line;
+
+  while (std::getline(in, line))
   {
-    std::array<std::vector<particle_info>, 2> out_lists;
+    if (line.starts_with("#") || line == "PARTICLE" || line == "END PARTICLE")
+      continue; //comment or header line
 
-    std::ifstream in("../data/ParticleTable.txt");
+    const std::size_t size{line.size()};
 
-    std::string line;
-
-    while (std::getline(in, line))
+    const std::string name = [&]
     {
-      if (line.starts_with("#") || line == "PARTICLE" || line == "END PARTICLE")
-        continue; //comment or header line
+      std::size_t i = 1;
 
-      const std::size_t size{line.size()};
+      while (i != size && line[i] != ' ')
+        ++i;
 
-      const std::string name = [&]
-      {
-        std::size_t i = 1;
+      return line.substr(1, i - 1);
+    }();
 
-        while (i != size && line[i] != ' ')
-          ++i;
+    const std::string charge_string{line.substr(40, 4)};
 
-        return line.substr(1, i - 1);
-      }();
+    if (charge_string[0] != ' ' && charge_string[0] != '-')
+      continue;
 
-      const std::string charge_string{line.substr(40, 4)};
+    if (charge_string[1] != '0' && charge_string[1] != '1')
+      continue;
 
-      if (charge_string[0] != ' ' && charge_string[0] != '-')
-        continue;
+    if (charge_string[2] != '.')
+      continue;
 
-      if (charge_string[1] != '0' && charge_string[1] != '1')
-        continue;
+    if (charge_string[3] != '0')
+      continue;
 
-      if (charge_string[2] != '.')
-        continue;
+    const bool charge = charge_string[1] == '0' ? false : true;
 
-      if (charge_string[3] != '0')
-        continue;
+    const double mass = [&]
+    {
+      double out;
 
-      const bool charge = charge_string[1] == '0' ? false : true;
+      std::size_t i = 45;
 
-      const double mass = [&]
-      {
-        double out;
+      while (i != size && line[i] == ' ')
+        ++i;
 
-        std::size_t i = 45;
+      std::from_chars(line.data() + i, line.data() + 62, out);
 
-        while (i != size && line[i] == ' ')
-          ++i;
+      return out * 1000.0;
+    }();
 
-        std::from_chars(line.data() + i, line.data() + 62, out);
+    const double width = [&]
+    {
+      double out;
 
-        return out * 1000.0;
-      }();
+      std::size_t i = 61;
 
-      const double width = [&]
-      {
-        double out;
+      while (i != size && line[i] == ' ')
+        ++i;
 
-        std::size_t i = 61;
+      std::from_chars(line.data() + i, line.data() + 62, out);
 
-        while (i != size && line[i] == ' ')
-          ++i;
+      return 6.582119569 * pow<16>(0.1) / out / 1'000'000.0; //hbar in eVs
+    }();
 
-        std::from_chars(line.data() + i, line.data() + 62, out);
-
-        return 6.582119569 * pow<16>(0.1) / out / 1'000'000.0; //hbar in eVs
-      }();
-
-      if (charge && out_lists[charge].size() != 0)
-      {
-        const auto prev = out_lists[charge].back();
-      
-        if (   name.substr(0, name.size() - 1) == prev.name.substr(0, prev.name.size() - 1)
-            && name.back() != prev.name.back()
-            && mass == prev.mass)
-          continue; // same particle with opposite charge
-      }
-
-      out_lists[charge].emplace_back(name, mass, width);
-
-      //fmt::print("{}\n", out_lists[charge].back());
+    if (charge && lists[charge].size() != 0)
+    {
+      const auto prev = lists[charge].back();
+    
+      if (   name.substr(0, name.size() - 1) == prev.name.substr(0, prev.name.size() - 1)
+          && name.back() != prev.name.back()
+          && mass == prev.mass)
+        continue; // same particle with opposite charge
     }
 
-    return out_lists;
-  }();
+    lists[charge].emplace_back(name, mass, width);
+
+    //fmt::print("{}\n", lists[charge].back());
+  }
+
+  return lists;
+}
+
+
+enum class daughter {z, e, mu, pi, k, p};
+
+// Read variable name and return array of daughters represented by variable
+constexpr auto get_daughters(const std::string_view name)
+{
+  std::size_t i = 0;
+
+  std::array<daughter, 4> daughters;
+
+  for (auto& d : daughters)
+  {
+    switch (name[i++])
+    {
+      case '0': d = daughter::z;       break;
+      case 'e': d = daughter::e;       break;
+      case 'k': d = daughter::k;       break;
+      case 'm': d = daughter::mu; ++i; break;
+      case 'p':
+                if (i != name.size() && name[i] == 'i')
+                {
+                  d = daughter::pi;
+                  ++i;
+                }
+                else
+                  d = daughter::p;
+                break;
+      default:
+                fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character {} in column {}\n", i, name);
+    }
+  }
+
+  return daughters;
+};
+
+
+auto fit()
+{
+  // first list has particles of charge 0; second has particles of charge +-1
+  const auto lists{generate_particle_lists("../data/ParticleTable.txt")};
 
   fmt::print("\nLists created. Sizes(charge): {}(0) {}(+-1)\n\n", lists[0].size(), lists[1].size());
-  
 
-  //ROOT::RDataFrame rdf{"Masses", "cache/mass.root"};
+  const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
+
   const movency::root::file r("cache/mass.root");
 
-  //const auto cols = rdf.GetColumnNames();
   const auto cols = r.get_names();
+
+  const auto event_count = r.uncompress<double>(cols.front().first).size();
+
+  std::vector<double> weights(event_count, 1); // Weight to give each event when constructing distribution
+
+  std::vector<std::vector<peak_t>> peak_sets(event_count);
 
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900);
 
@@ -197,40 +239,6 @@ auto fit()
   //for (int n = 0; n < std::ssize(vecs); ++n)
   auto loop = [&]
   {
-    enum class daughter {z, e, mu, pi, k, p};
-
-    auto get_daughters = [](const std::string_view name)
-    {
-      std::size_t i = 0;
-
-      std::array<daughter, 4> daughters;
-
-      //for (std::size_t d_num = 0; d_num < 4; ++d_num)
-      for (auto& d : daughters)
-      {
-        switch (name[i++])
-        {
-          case '0': d = daughter::z;       break;
-          case 'e': d = daughter::e;       break;
-          case 'k': d = daughter::k;       break;
-          case 'm': d = daughter::mu; ++i; break;
-          case 'p':
-                    if (i != name.size() && name[i] == 'i')
-                    {
-                      d = daughter::pi;
-                      ++i;
-                    }
-                    else
-                      d = daughter::p;
-                    break;
-          default:
-                    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character {} in column {}\n", i, name);
-        }
-      }
-
-      return daughters;
-    };
-
     while (true)
     {
       const auto n = next.fetch_add(1, std::memory_order_relaxed);
@@ -264,7 +272,6 @@ auto fit()
       {
         fmt::print("reading variable: {}\n", cols[n].first);
 
-        //std::vector<double> out = *rdf.Take<double>(cols[n].first);
         std::vector<double> out = r.uncompress<double>(cols[n].first);
 
         std::ranges::sort(out);
@@ -272,15 +279,22 @@ auto fit()
         return out;
       }();
 
-      fmt::print("fitting variable: {}\n", cols[n].first);
+      if (vec.size() != event_count)
+      {
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: inconsistent number of entries in each record: {} in {}; {} in {}", event_count, 0, vec.size(), 0);
+
+        std::exit(1);
+      }
 
       if (vec.empty())
       {
         fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: No data present for variable {} (index n={})\n", cols[n].first, n);
 
-        //std::exit(1);
-        continue;
+        std::exit(1);
+        //continue;
       }
+
+      fmt::print("fitting variable: {}\n", cols[n].first);
 
       const auto min = vec.front();
       const auto max = vec.back();
@@ -307,9 +321,10 @@ auto fit()
       {
         std::array<double, bucket_count> out{};
 
-        for (const double val : vec)
+        //for (const double val : vec)
+        for (std::size_t j = 0; j < event_count; ++j)
         {
-          const double distance = (val - min) / span * static_cast<double>(bucket_count);
+          const double distance = (vec[j] * weights[j] - min) / span * static_cast<double>(bucket_count);
 
           const auto from = static_cast<std::uint32_t>(std::max(0,          static_cast<std:: int32_t>(distance - spread)    ));
           const auto to   = static_cast<std::uint32_t>(std::min(out.size(), static_cast<std::uint64_t>(distance + spread) + 1));
@@ -321,7 +336,7 @@ auto fit()
         return out;
       }();
 
-      std::vector<peak_t> peaks{};
+      std::vector<peak_t>& peaks{peak_sets[n]};
 
       for (auto _l = 750; _l--;)
       {
@@ -663,13 +678,15 @@ auto fit()
   };
 
   {
-    std::vector<std::jthread> loop_threads{};
+    {
+      std::vector<std::jthread> loop_threads{};
 
-    for (std::uint32_t i = 1; i < std::thread::hardware_concurrency(); ++i)
-    //for (std::uint32_t i = 1; i < 2; ++i)
-      loop_threads.emplace_back(loop);
+      for (std::uint32_t i = 0; i < thread_count; ++i)
+        loop_threads.emplace_back(loop);
 
-    fmt::print("Spawned {} threads.\n", loop_threads.size());
+      fmt::print("Spawned {} threads.\n", thread_count);
+    }
+
   }
 }
 

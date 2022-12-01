@@ -19,6 +19,8 @@
 #include <utility>
 #include <array>
 
+// TODO: fix this breaking for variable names with 11 (or more) characters
+
 namespace std {
 
 // c++23 std library functions (included here if not present)

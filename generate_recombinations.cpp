@@ -59,7 +59,7 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
   for (std::uint32_t cp = 0; cp < names.size(); ++cp)
   for (std::uint32_t dp = 0; dp < names.size(); ++dp)
   {
-    const auto name = fmt::format("{}{}{}{}{}{}{}", names[ap], "_", names[bp], "_", names[cp], "_", names[dp]);
+    const auto name = fmt::format("{}{}{}{}", names[ap], names[bp], names[cp], names[dp]);
 
     output_tree->Branch(name.c_str(), &vals[ap][bp][cp][dp], fmt::format("{}{}", name, "/D").c_str());
   }

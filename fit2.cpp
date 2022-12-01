@@ -1,3 +1,5 @@
+#include "root.hpp"
+
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TMultiGraph.h"
@@ -180,11 +182,11 @@ auto fit()
   fmt::print("\nLists created. Sizes(charge): {}(0) {}(+-1)\n\n", lists[0].size(), lists[1].size());
   
 
-  ROOT::RDataFrame rdf{"Masses", "cache/mass.root"};
+  //ROOT::RDataFrame rdf{"Masses", "cache/mass.root"};
+  const movency::root::file r("cache/mass.root");
 
-  const auto cols = rdf.GetColumnNames();
-
-  std::mutex data_mutex;
+  //const auto cols = rdf.GetColumnNames();
+  const auto cols = r.get_names();
 
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900);
 
@@ -206,14 +208,14 @@ auto fit()
       //for (std::size_t d_num = 0; d_num < 4; ++d_num)
       for (auto& d : daughters)
       {
-        switch (name[i])
+        switch (name[i++])
         {
           case '0': d = daughter::z;       break;
           case 'e': d = daughter::e;       break;
           case 'k': d = daughter::k;       break;
           case 'm': d = daughter::mu; ++i; break;
           case 'p':
-                    if (i + 1 != name.size() && name[i + 1] == 'i')
+                    if (i != name.size() && name[i] == 'i')
                     {
                       d = daughter::pi;
                       ++i;
@@ -222,10 +224,8 @@ auto fit()
                       d = daughter::p;
                     break;
           default:
-                    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character #{} in column {}\n", i, name);
+                    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character {} in column {}\n", i, name);
         }
-
-        i += 2;
       }
 
       return daughters;
@@ -233,12 +233,12 @@ auto fit()
 
     while (true)
     {
-      auto n = next.fetch_add(1, std::memory_order_relaxed);
+      const auto n = next.fetch_add(1, std::memory_order_relaxed);
 
       if (n >= cols.size())
         return;
 
-      const auto daughters = get_daughters(cols[n]);
+      const auto daughters = get_daughters(cols[n].first);
 
       const int daughter_count = [&]
       {
@@ -253,27 +253,34 @@ auto fit()
 
       if (daughter_count <= 1)
       {
-        fmt::print("Skipping due to too few particles: {}\n", cols[n]);
+        fmt::print("Skipping due to too few particles: {}\n", cols[n].first);
 
         continue;
       }
 
-      fmt::print("about to read variable: {}\n", cols[n]);
+      fmt::print("about to read variable: {}\n", cols[n].first);
 
       const std::vector<double> vec = [&]
       {
-        const std::scoped_lock lock(data_mutex);
+        fmt::print("reading variable: {}\n", cols[n].first);
 
-        fmt::print("reading variable: {}\n", cols[n]);
-
-        std::vector<double> out = *rdf.Take<double>(cols[n]);
+        //std::vector<double> out = *rdf.Take<double>(cols[n].first);
+        std::vector<double> out = r.uncompress<double>(cols[n].first);
 
         std::ranges::sort(out);
 
         return out;
       }();
 
-      fmt::print("fitting variable: {}\n", cols[n]);
+      fmt::print("fitting variable: {}\n", cols[n].first);
+
+      if (vec.empty())
+      {
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: No data present for variable {} (index n={})\n", cols[n].first, n);
+
+        //std::exit(1);
+        continue;
+      }
 
       const auto min = vec.front();
       const auto max = vec.back();
@@ -502,7 +509,7 @@ auto fit()
         }
       }
 
-      fmt::print("finished fitting gaussians to {}, with {} peaks:\n", cols[n],  peaks.size());
+      fmt::print("finished fitting gaussians to {}, with {} peaks:\n", cols[n].first,  peaks.size());
 
       //for (const peak_t& peak : peaks)
         //fmt::print("{}\n", peak);
@@ -644,14 +651,14 @@ auto fit()
           mgraph.Add(graph.release());
         }
 
-        mgraph.SetTitle(cols[n].c_str());
+        mgraph.SetTitle(std::string(cols[n].first).data());
 
         mgraph.Draw("a");
 
-        canvas->SaveAs(fmt::format("cache/graph_{}.png", cols[n]).c_str());
+        canvas->SaveAs(fmt::format("cache/graph_{}.png", cols[n].first).c_str());
       }
 
-      fmt::print("finished with variable {} ({}/{})\n\n", cols[n], n + 1, cols.size());
+      fmt::print("finished with variable {} ({}/{})\n\n", cols[n].first, n + 1, cols.size());
     }
   };
 

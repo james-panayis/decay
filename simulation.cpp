@@ -138,8 +138,6 @@ int main()
 
   fmt::print("average distance travelled by B meson in detector's frame: {}\n\n", d_d_B);
 
-  int back_count = 0;
-
   constexpr std::uint32_t bucket_count = 4000;
 
   constexpr double bs_hist_d_p_mag_K {60000.0 / double{bucket_count}};
@@ -162,6 +160,7 @@ int main()
   std::atomic<double> average_impact_parameter_K {0};
   std::atomic<double> average_impact_parameter_pi{0};
 
+  std::atomic<std::int64_t> back_count = 0;
   std::atomic<std::int64_t> repeats = 0;
 
   auto loop = [&](std::stop_token stoken)
@@ -179,16 +178,12 @@ int main()
     double average_impact_parameter_K_temp {0};
     double average_impact_parameter_pi_temp{0};
 
-    int back_count_temp{0};
-
+    std::int64_t back_count_temp{0};
     std::int64_t repeats_temp{0};
 
     while (!stoken.stop_requested())
-    {
       for (int i = 0; i < 1000; ++i)
       {
-        ++repeats_temp;
-
         // angle of kaon motion in B meson's reference frame
         const double phi   =           random::fast(random::uniform_distribution{ 0.0, 2.0 * std::numbers::pi});
         const double theta = std::acos(random::fast(random::uniform_distribution{-1.0, 1.0                   }));
@@ -243,28 +238,9 @@ int main()
 
         if (d_v_pi[2] < 0.0)
           ++back_count_temp;
+
+        ++repeats_temp;
       }
-
-      for (std::uint32_t i = 0; i < bucket_count; ++i)
-      {
-        hist_d_p_mag_K[i]  += hist_d_p_mag_K_temp[i];
-        hist_d_p_mag_pi[i] += hist_d_p_mag_pi_temp[i];
-        hist_d_pt_K[i]     += hist_d_pt_K_temp[i];
-        hist_d_pt_pi[i]    += hist_d_pt_pi_temp[i];
-        hist_impact_parameter_K[i]  += hist_impact_parameter_K_temp[i];
-        hist_impact_parameter_pi[i] += hist_impact_parameter_pi_temp[i];
-      }
-
-      average_d_p_mag_K  += average_d_p_mag_K_temp;
-      average_d_p_mag_pi += average_d_p_mag_pi_temp;
-      average_d_pt_K     += average_d_pt_K_temp;
-      average_d_pt_pi    += average_d_pt_pi_temp;
-      average_impact_parameter_K  += average_impact_parameter_K_temp;
-      average_impact_parameter_pi += average_impact_parameter_pi_temp;
-
-      back_count += back_count_temp;
-      repeats    += repeats_temp;
-    }
 
     for (std::uint32_t i = 0; i < bucket_count; ++i)
     {

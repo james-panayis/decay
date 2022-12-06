@@ -23,9 +23,9 @@ constexpr double pi_mass = 139.57039;
 constexpr double k_mass  = 493.677;
 constexpr double p_mass  = 938.27208816;
 
-constexpr std::array masses{z_mass, e_mass, mu_mass, pi_mass, k_mass, p_mass};
+constexpr std::array masses{z_mass, mu_mass, pi_mass, k_mass, p_mass};
 
-constexpr std::array names {"0"sv, "e"sv,  "mu"sv,  "pi"sv,  "k"sv,  "p"sv};
+constexpr std::array names {"0"sv, "mu"sv,  "pi"sv,  "k"sv,  "p"sv};
 
 static_assert(masses.size() == names.size());
 
@@ -59,6 +59,24 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
   for (std::uint32_t cp = 0; cp < names.size(); ++cp)
   for (std::uint32_t dp = 0; dp < names.size(); ++dp)
   {
+    {
+      int p_count = 0;
+
+      p_count += ap != 0;
+      p_count += bp != 0;
+      p_count += cp != 0;
+      p_count += dp != 0;
+    
+      if (p_count <= 1)
+        continue;
+    }
+
+    if (ap == 0 && bp != 0 && cp == 0 && dp != 0)
+      continue;
+
+    if (ap != 0 && bp == 0 && cp != 0 && dp == 0)
+      continue;
+
     const auto name = fmt::format("{}{}{}{}", names[ap], names[bp], names[cp], names[dp]);
 
     output_tree->Branch(name.c_str(), &vals[ap][bp][cp][dp], fmt::format("{}{}", name, "/D").c_str());
@@ -79,13 +97,34 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
       else
         return particle.getHypothesis(masses[p]);
     };
-        
+
+    //TODO: cache hypothesis results?
 
     for (std::uint32_t ap = 0; ap < names.size(); ++ap)
     for (std::uint32_t bp = 0; bp < names.size(); ++bp)
     for (std::uint32_t cp = 0; cp < names.size(); ++cp)
     for (std::uint32_t dp = 0; dp < names.size(); ++dp)
+    {
+      {
+        int p_count = 0;
+
+        p_count += ap != 0;
+        p_count += bp != 0;
+        p_count += cp != 0;
+        p_count += dp != 0;
+      
+        if (p_count <= 1)
+          continue;
+      }
+
+      if (ap == 0 && bp != 0 && cp == 0 && dp != 0)
+        continue;
+
+      if (ap != 0 && bp == 0 && cp != 0 && dp == 0)
+        continue;
+
       vals[ap][bp][cp][dp] = (for_mass(a, ap) + for_mass(b, bp) + for_mass(c, cp) + for_mass(d, dp)).M();
+    }
 
     output_tree->Fill();
   }

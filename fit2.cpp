@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <fstream>
 #include <charconv>
+#include <iostream>
 
 using namespace movency;
 
@@ -112,6 +113,10 @@ auto generate_particle_lists(const std::string filepath)
 
       return line.substr(1, i - 1);
     }();
+
+    //if (name.contains('~'))
+    if (std::ranges::find(name, '~') != name.end())
+      continue; // antiparticle
 
     const std::string charge_string{line.substr(40, 4)};
 
@@ -211,6 +216,15 @@ constexpr auto get_daughters(const std::string_view name)
 };
 
 
+struct peak_record
+{
+  double        score;
+  std::uint32_t graph_idx;
+  std::uint32_t peak_idx;
+  std::string   name;
+};
+
+  
 auto fit()
 {
   // first list has particles of charge 0; second has particles of charge +-1
@@ -230,15 +244,28 @@ auto fit()
 
   std::vector<std::vector<peak_t>> peak_sets(event_count);
 
+  std::vector<std::vector<peak_record>> best_local_peaks(thread_count); // score, event idx, peak idx, peak name
+
   auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900);
 
   std::mutex canvas_mutex;
 
   std::atomic<std::uint32_t> next{0};
 
+  constexpr int bucket_count{1000}; // buckets in each histogram
+
+  constexpr double spread{2.0}; // how far each point should bleed into neighbouring buckets (linearly)
+
+  int iteration = 0;
+
   //for (int n = 0; n < std::ssize(vecs); ++n)
-  auto loop = [&]
+  auto loop = [&](const auto thread_no)
   {
+    best_local_peaks[thread_no].resize(25);
+
+    for (auto& record : best_local_peaks[thread_no])
+      record.score = 0;
+
     while (true)
     {
       const auto n = next.fetch_add(1, std::memory_order_relaxed);
@@ -266,18 +293,9 @@ auto fit()
         continue;
       }
 
-      fmt::print("about to read variable: {}\n", cols[n].first);
+      fmt::print("reading variable: {}\n", cols[n].first);
 
-      const std::vector<double> vec = [&]
-      {
-        fmt::print("reading variable: {}\n", cols[n].first);
-
-        std::vector<double> out = r.uncompress<double>(cols[n].first);
-
-        std::ranges::sort(out);
-
-        return out;
-      }();
+      const std::vector<double> vec = r.uncompress<double>(cols[n].first);
 
       if (vec.size() != event_count)
       {
@@ -296,14 +314,10 @@ auto fit()
 
       fmt::print("fitting variable: {}\n", cols[n].first);
 
-      const auto min = vec.front();
-      const auto max = vec.back();
+      const auto min = std::ranges::min(vec);
+      const auto max = std::ranges::max(vec);
 
       const auto span = max - min;
-
-      constexpr int bucket_count{1000};
-
-      constexpr double spread{2.0}; // how far each point should bleed into neighbouring buckets (linearly)
 
       // values represented by buckets
       const auto dist_vals = [&]
@@ -324,13 +338,13 @@ auto fit()
         //for (const double val : vec)
         for (std::size_t j = 0; j < event_count; ++j)
         {
-          const double distance = (vec[j] * weights[j] - min) / span * static_cast<double>(bucket_count);
+          const double distance = (vec[j] - min) / span * static_cast<double>(bucket_count - 1);
 
           const auto from = static_cast<std::uint32_t>(std::max(0,          static_cast<std:: int32_t>(distance - spread)    ));
           const auto to   = static_cast<std::uint32_t>(std::min(out.size(), static_cast<std::uint64_t>(distance + spread) + 1));
 
           for (std::uint32_t i = from; i < to; ++i)
-            out[i] += std::max(0.0, spread - std::abs(dist_vals[i] - min) / span);
+            out[i] += weights[j] * std::max(0.0, spread - std::abs(dist_vals[i] - min) / span);
         }
 
         return out;
@@ -544,7 +558,9 @@ auto fit()
       {
         const peak_t& peak = peaks[j];
 
-        if (peak.magnitude / peak.width < 50)
+        const auto sharpness = peak.magnitude / peak.width;
+
+        if (sharpness < 50)
           break;
 
         std::ranges::sort(local_list, std::ranges::less{}, [&](const particle_info p){return std::abs(peak.position - p.mass);});
@@ -556,7 +572,9 @@ auto fit()
           if (particle.width != std::numeric_limits<double>::infinity() && particle.width * 0.9 > peak.width * 1.665109)
             continue; // peak too thin given particle width
 
-          if (std::abs(peak.position - particle.mass) > 125)
+          const auto distance = std::abs(peak.position - particle.mass);
+
+          if (distance > 125)
             break;
 
           //if (particles_so_far.contains(p.name))
@@ -564,8 +582,8 @@ auto fit()
             continue;
 
           if (!annotated)
-            if (peak.magnitude / peak.width > 175)
-              if (std::abs(peak.position - particle.mass) < 75)
+            if (sharpness > 175)
+              if (distance < 75)
               {
                 annotations.emplace_back(j, particle.name);
 
@@ -574,7 +592,15 @@ auto fit()
 
           particles_so_far.push_back(particle.name);
 
-          fmt::print("{}  (peak {}) dist {}\n", particle, peak, std::abs(peak.position - particle.mass));
+          //fmt::print("{}  (peak {}) dist {}\n", particle, peak, std::abs(peak.position - particle.mass));
+
+          const double score = std::log(sharpness) / (distance + 1);
+
+          if (std::isfinite(score) && score > best_local_peaks[thread_no].back().score)
+            best_local_peaks[thread_no].back() = peak_record{score, n, j, particle.name};
+
+          std::ranges::sort(best_local_peaks[thread_no], [](const auto& lhs, const auto& rhs){ return lhs.score > rhs.score; });
+          //fmt::print("*** {}  {}\n", best_local_peaks[thread_no].front().score, best_local_peaks[thread_no].back().score);
         }
       }
 
@@ -667,26 +693,139 @@ auto fit()
         }
 
         mgraph.SetTitle(std::string(cols[n].first).data());
+        mgraph.SetName (std::string(cols[n].first).data());
 
         mgraph.Draw("a");
 
-        canvas->SaveAs(fmt::format("cache/graph_{}.png", cols[n].first).c_str());
+        canvas->SaveAs(fmt::format("cache/graph_{}_{}.png", cols[n].first, iteration).c_str());
       }
 
       fmt::print("finished with variable {} ({}/{})\n\n", cols[n].first, n + 1, cols.size());
     }
   };
 
+  while (true)
   {
+    next = 0;
+
     {
       std::vector<std::jthread> loop_threads{};
 
       for (std::uint32_t i = 0; i < thread_count; ++i)
-        loop_threads.emplace_back(loop);
+        loop_threads.emplace_back(loop, i);
 
       fmt::print("Spawned {} threads.\n", thread_count);
     }
 
+    std::vector<peak_record> best_peaks{};
+    
+    best_peaks.reserve(25 * thread_count);
+
+    for (auto& vec : best_local_peaks)
+      best_peaks.insert(best_peaks.end(), vec.begin(), vec.end());
+
+    std::ranges::sort(best_peaks, [](const auto& lhs, const auto& rhs){ return lhs.score > rhs.score; });
+
+    for (std::uint32_t i = 0; true; ++i)
+    {
+      if (i > 25)
+        fmt::print("WARNING: exceeded 25 potential peaks\n");
+
+      fmt::print("use decay: {} -> {} ? [y/n]\n", best_peaks[i].name, cols[best_peaks[i].graph_idx].first);
+
+      char in;
+
+      std::cin >> in;
+
+      if (in == 'y')
+      {
+        const std::vector<double> vec = r.uncompress<double>(cols[best_peaks[i].graph_idx].first);
+
+        const auto min = std::ranges::min(vec);
+        const auto max = std::ranges::max(vec);
+
+        const auto span = max - min;
+
+        const auto dist_vals = [&]
+        {
+          std::array<double, bucket_count> out;
+
+          for (std::uint32_t j = 0; j < out.size(); ++j)
+            out[j] = min + static_cast<double>(j) / static_cast<double>(bucket_count - 1) * span;
+
+          return out;
+        }();
+
+        // distribution of values
+        const auto distribution = [&]
+        {
+          std::array<double, bucket_count> out{};
+
+          for (std::size_t j = 0; j < event_count; ++j)
+          {
+            const double distance = (vec[j] - min) / span * static_cast<double>(bucket_count - 1);
+
+            const auto from = static_cast<std::uint32_t>(std::max(0,          static_cast<std:: int32_t>(distance - spread)    ));
+            const auto to   = static_cast<std::uint32_t>(std::min(out.size(), static_cast<std::uint64_t>(distance + spread) + 1));
+
+            for (std::uint32_t k = from; k < to; ++k)
+              out[k] += weights[j] * std::max(0.0, spread - std::abs(dist_vals[k] - min) / span);
+          }
+
+          return out;
+        }();
+
+        const peak_t& peak = peak_sets[best_peaks[i].graph_idx][best_peaks[i].peak_idx];
+
+        fmt::print("PEAK: {}\n", peak);
+
+        for (std::uint32_t j = 0; j < event_count; ++j)
+        {
+          const double distance = (vec[j] - min) / span * static_cast<double>(bucket_count - 1);
+
+          const auto below = static_cast<std::uint32_t>(std::floor(distance));
+          const auto above = static_cast<std::uint32_t>(std::ceil (distance));
+
+          if (distance > distribution.size() - 1 || distance < 0)
+          {
+            fmt::print("ERROR: {} {} {} {}", distance, distribution.size(), above, below);
+            int pauspdsiubf;
+            std::cin >> pauspdsiubf;
+            continue;
+          }
+
+          const double background = (distance - below) * distribution[above] + (above - distance) * distribution[below];
+
+          const double signal = [&]
+          {
+            double out = 0;
+
+            const double offset_1 = std::abs(peak.position - dist_vals[above]) / peak.width;
+
+            out += (distance - below) * peak.magnitude * std::exp(-pow<2>(offset_1));
+
+            const double offset_2 = std::abs(peak.position - dist_vals[below]) / peak.width;
+
+            out += (above - distance) * peak.magnitude * std::exp(-pow<2>(offset_2));
+
+            return out;
+          }();
+
+          weights[j] *= (background - signal) / background;
+
+          if (weights[j] < 0 || weights[j] > 1)
+            fmt::print("*** {} {} {} {} {} {}\n", weights[j], vec[j], below, above, background, signal);
+
+          //if (j < 10000)
+            //fmt::print("*** {} {} {} {} {} {}\n", weights[j], vec[j], below, above, background, signal);
+        }
+
+        break;
+      }
+    }
+    //////gRoot->GetListOfObjects
+
+    ++iteration;
   }
 }
 

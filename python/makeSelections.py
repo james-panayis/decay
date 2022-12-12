@@ -13,10 +13,6 @@ import sys
 sys.path.append('common/')
 sys.path.append('python/')
 
-#import triggerselection
-
-#selections=[triggerselection.addTriggerSelection]
-
 
 def makedataname(data, year, polarity):
     name = '{}_mg{}_{}.root'.format(data, polarity, year)
@@ -128,7 +124,7 @@ def passPreselection(tree, filename):
 
     i = 0
     while (i < data.shape[0]):
-        if data['Lb_PT'][i] <= 220:
+        if data['Lb_PT'][i] <= 100:
             result['survive_preselection'][i] = 0
             result['preselection_killed_by'][i] += 1
             result['survive_PT_preselection'][i] = 0
@@ -136,15 +132,15 @@ def passPreselection(tree, filename):
             result['survive_preselection'][i] = 0
             result['preselection_killed_by'][i] += 2
             result['survive_PT_preselection'][i] = 0
-        if data['h2_PT'][i] <= 72:
+        if data['h2_PT'][i] <= 100:
             result['survive_preselection'][i] = 0
             result['preselection_killed_by'][i] += 4
             result['survive_PT_preselection'][i] = 0
-        if data['mu1_PT'][i] <= 150:
+        if data['mu1_PT'][i] <= 100:
             result['survive_preselection'][i] = 0
             result['preselection_killed_by'][i] += 8
             result['survive_PT_preselection'][i] = 0
-        if data['mu2_PT'][i] <= 120:
+        if data['mu2_PT'][i] <= 100:
             result['survive_preselection'][i] = 0
             result['preselection_killed_by'][i] += 16
             result['survive_PT_preselection'][i] = 0
@@ -162,14 +158,12 @@ def passPreselection(tree, filename):
                 (data['h2_P'][i] + data['h2_PZ'][i]) /
                 (data['h2_P'][i] - data['h2_PZ'][i]))
 
-            if data['mu1_P'][i] > 3400 and data['mu1_P'][
-                    i] < 27000 and mu1_ETA > 1.9 and mu1_ETA < 4.9 and data[
-                        'mu2_P'][i] > 3300 and data['mu2_P'][
-                            i] < 250000 and mu2_ETA > 1.9 and mu2_ETA < 4.9 and data[
-                                'h1_P'][i] > 1575 and data['h1_P'][
-                                    i] < 180000 and h1_ETA > 1.9 and h1_ETA < 4.9 and data[
-                                        'h2_P'][i] > 1550 and data['h2_P'][
-                                            i] < 140000 and h2_ETA > 1.9 and h2_ETA < 4.9:
+            if data['mu1_P'][i] < 380000 and mu1_ETA > 2 and mu1_ETA < 5 and data[
+                    'mu2_P'][i] < 380000 and mu2_ETA > 2 and mu2_ETA < 5 and data[
+                        'h1_P'][i] > 10000 and data['h1_P'][
+                            i] < 120000 and h1_ETA > 2 and h1_ETA < 5 and data[
+                                'h2_P'][i] > 10000 and data['h2_P'][
+                                    i] < 120000 and h2_ETA > 2 and h2_ETA < 5:
 
                 result['survive_track_pid_fiducial'][i] = 1
 
@@ -212,9 +206,9 @@ def passFiducialSelection(tree, filename):
         if data['nTracks'][i] >= 495:
             result['survive_fiducial'][i] = 0
             result['fiducial_killed_by'][i] += 1
-        if data['Lb_PT'][i] >= 27000:
-            result['survive_fiducial'][i] = 0
-            result['fiducial_killed_by'][i] += 1
+#        if data['Lb_PT'][i] >= 27000:
+#            result['survive_fiducial'][i] = 0
+#            result['fiducial_killed_by'][i] += 1
         if data['Lb_OWNPV_NDOF'][i] >= 300:
             result['survive_fiducial'][i] = 0
             result['fiducial_killed_by'][i] += 1
@@ -239,7 +233,7 @@ def passFiducialSelection(tree, filename):
 ############################################################
 selections = [
     passPreselection,
-    passFiducialSelection,
+    # passFiducialSelection,
 ]  #'passTriggerSelection', #passFiducialSelection
 DataType = ['Lb2pKmm', 'Lb2pKmm_sim']
 years = [2016, 2017, 2018]

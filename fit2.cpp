@@ -234,6 +234,7 @@ auto fit()
   fmt::print("\nLists created. Sizes(charge): {}(0) {}(+-1)\n\n", lists[0].size(), lists[1].size());
 
   const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
+  //const std::size_t thread_count{1};
 
   const movency::root::file r("cache/mass.root");
 
@@ -258,6 +259,8 @@ auto fit()
   constexpr double spread{2.0}; // how far each point should bleed into neighbouring buckets (linearly)
 
   int iteration = 0;
+
+  std::ofstream log{"cache/log.txt"};
 
   auto remove_peak = [&]
   {
@@ -285,6 +288,13 @@ auto fit()
 
       if (in == 'y')
       {
+        const peak_t& peak = peak_sets[best_peaks[i].graph_idx][best_peaks[i].peak_idx];
+
+        log << fmt::format("removing decay: {} -> {}   (peak: {})\n", best_peaks[i].name, cols[best_peaks[i].graph_idx].first, peak);
+        log.flush();
+
+        fmt::print("PEAK: {}\n", peak);
+
         const std::vector<double> vec = r.uncompress<double>(cols[best_peaks[i].graph_idx].first);
 
         const auto min = std::ranges::min(vec);
@@ -321,10 +331,6 @@ auto fit()
           return out;
         }();
 
-        const peak_t& peak = peak_sets[best_peaks[i].graph_idx][best_peaks[i].peak_idx];
-
-        fmt::print("PEAK: {}\n", peak);
-
         for (std::uint32_t j = 0; j < event_count; ++j)
         {
           const double distance = (vec[j] - min) / span * static_cast<double>(bucket_count - 1);
@@ -357,7 +363,14 @@ auto fit()
             return out;
           }();
 
-          weights[j] *= (background - signal) / background;
+          if (background != 0)
+            weights[j] *= (background - signal) / background;
+          else
+            fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "{} ({}): {}, {} {} {}  {}\n", j, vec[j], weights[j], background, signal, background - signal, (background - signal) / background);
+
+          //if (weights[j] != weights[j])
+          //if (background == 0)
+            //fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "{}: {}, {} {} {}  {}\n", j, weights[j], background, signal, background - signal, (background - signal) / background);
 
           if (weights[j] < 0 || weights[j] > 1)
             fmt::print("*** {} {} {} {} {} {}\n", weights[j], vec[j], below, above, background, signal);
@@ -369,7 +382,6 @@ auto fit()
         break;
       }
     }
-    //////gRoot->GetListOfObjects
 
     ++iteration;
   };
@@ -454,16 +466,21 @@ auto fit()
         {
           std::array<double, bucket_count> out{};
 
-          //for (const double val : vec)
           for (std::size_t j = 0; j < event_count; ++j)
           {
+            //if (iteration != 0)
+              //fmt::print("START\n\n");
             const double distance = (vec[j] - min) / span * static_cast<double>(bucket_count - 1);
 
             const auto from = static_cast<std::uint32_t>(std::max(0,          static_cast<std:: int32_t>(distance - spread)    ));
             const auto to   = static_cast<std::uint32_t>(std::min(out.size(), static_cast<std::uint64_t>(distance + spread) + 1));
 
             for (std::uint32_t i = from; i < to; ++i)
+            {
               out[i] += weights[j] * std::max(0.0, spread - std::abs(dist_vals[i] - min) / span);
+              //if (iteration != 0 && out[i] != out[i])
+                //fmt::print("{} {}, v{} w{} dv{} s{} d{}\n", j, i, vec[j], weights[j], dist_vals[i], span, distance);
+            }
           }
 
           return out;
@@ -477,8 +494,14 @@ auto fit()
           {
             std::array<double, bucket_count> out;
 
+            //if (iteration != 0)
+              //fmt::print("START\n\n");
+
             for (std::size_t i = 0; i < out.size(); ++i)
             {
+              //if (iteration != 0)
+                //fmt::print("{}, {} - ", i, distribution[i]);
+
               out[i] = distribution[i];
 
               for (std::size_t j = 0; j < peaks.size(); ++j)
@@ -490,6 +513,8 @@ auto fit()
                 const double offset = std::abs(peaks[j].position - dist_vals[i]) / peaks[j].width;
 
                 out[i] -= peaks[j].magnitude * std::exp(-pow<2>(offset));
+                //if (iteration != 0 && out[i] != out[i])
+                  //fmt::print("** {}   {}   {}\n", peaks[j], dist_vals[i], offset);
               }
             }
 
@@ -500,11 +525,16 @@ auto fit()
           {
             double fit{};
 
+            //if (iteration != 0)
+            //fmt::print("START\n\n");
+
             for (std::uint32_t i = 0; i < bucket_count; ++i)
             {
               const double offset = std::abs(peak.position - dist_vals[i]) / peak.width;
 
               const double val = peak.magnitude * std::exp(-pow<2>(offset));
+            //if (iteration != 0)
+              //fmt::print("{} | {} {} {} | {} {}\n", peak, fit, offset, val, dist_vals[i], residuals[i]);
 
               fit += pow<2>(val - residuals[i]);
             }
@@ -582,7 +612,16 @@ auto fit()
                     if constexpr (var == 0)
                       variable -= factor;
                     else
+                    {
                       variable /= factor;
+
+                      if constexpr (var == 2)
+                        if (variable <= 0.5)
+                        {
+                          peaks.erase(peaks.begin() + static_cast<std::int64_t>(change_index));
+                          return;
+                        }
+                    }
                   }
 
                   if constexpr (var == 0)
@@ -598,7 +637,7 @@ auto fit()
               return;
             };
 
-            if (new_fit < prev_fit)
+            if (new_fit <= prev_fit)
             {
               peaks.erase(peaks.begin() + static_cast<std::int64_t>(change_index));
             }
@@ -701,8 +740,8 @@ auto fit()
               continue;
 
             if (!annotated)
-              if (sharpness > 175)
-                if (distance < 75)
+              if (sharpness > 125)
+                if (distance < 60)
                 {
                   annotations.emplace_back(j, particle.name);
 
@@ -724,9 +763,11 @@ auto fit()
         }
 
         {
+          const std::string name{fmt::format("{}_{}", cols[n].first, iteration)};
+
           const std::scoped_lock lock(canvas_mutex);
 
-          TMultiGraph mgraph{};
+          TMultiGraph mgraph{name.c_str(), name.c_str()};
 
           // graph of distribution
           {
@@ -780,9 +821,6 @@ auto fit()
               graph->AddPoint(dist_vals[i], peak.magnitude * std::exp(-pow<2>(offset)));
             }
 
-            //TLatex* latex = new TLatex(graph->GetX()[100], graph->GetY()[100], "test");
-            //graph->GetListOfFunctions()->Add(latex);
-
             mgraph.Add(graph.release());
           }
 
@@ -811,18 +849,24 @@ auto fit()
             mgraph.Add(graph.release());
           }
 
-          mgraph.SetTitle(std::string(cols[n].first).data());
-          mgraph.SetName (std::string(cols[n].first).data());
+          //mgraph.SetTitle(std::string(cols[n].first).data());
+          //mgraph.SetName (std::string(cols[n].first).data());
 
           mgraph.Draw("a");
 
-          canvas->SaveAs(fmt::format("cache/graph_{}_{}.png", cols[n].first, iteration).c_str());
+          canvas->SaveAs(fmt::format("cache/graph_{}.png", name).c_str());
         }
 
         fmt::print("finished with variable {} ({}/{})\n\n", cols[n].first, n + 1, cols.size());
       }
 
+      //if (thread_no == 0)
       sync_point.arrive_and_wait();
+      //else
+      //{
+      //sync_point.arrive_and_drop();
+      //return;
+      //}
     }
   };
 

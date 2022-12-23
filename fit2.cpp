@@ -238,6 +238,11 @@ auto fit()
 
   const movency::root::file r("cache/mass.root");
 
+  fmt::print("read\n");
+
+  int temp;
+  //std::cin >> temp;
+
   const auto cols = r.get_names();
 
   const auto event_count = r.uncompress<double>(cols.front().first).size();
@@ -248,7 +253,7 @@ auto fit()
 
   std::vector<std::vector<peak_record>> best_local_peaks(thread_count); // score, event idx, peak idx, peak name
 
-  auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900);
+  auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950);
 
   std::mutex canvas_mutex;
 
@@ -283,6 +288,8 @@ auto fit()
       fmt::print("use decay: {} -> {} ? [y/n]\n", best_peaks[i].name, cols[best_peaks[i].graph_idx].first);
 
       char in;
+
+      std::exit(1);
 
       std::cin >> in;
 
@@ -489,6 +496,7 @@ auto fit()
         std::vector<peak_t>& peaks{peak_sets[n]};
 
         for (auto _l = 750; _l--;)
+        //for (auto _l = 1; _l--;)
         {
           auto calculate_residuals = [&]<bool ignore = false>(const std::size_t ignore_index = 0)
           {
@@ -854,7 +862,7 @@ auto fit()
 
           mgraph.Draw("a");
 
-          canvas->SaveAs(fmt::format("cache/graph_{}.png", name).c_str());
+          canvas->SaveAs(fmt::format("cache/graph_{}.bmp", name).c_str());
         }
 
         fmt::print("finished with variable {} ({}/{})\n\n", cols[n].first, n + 1, cols.size());

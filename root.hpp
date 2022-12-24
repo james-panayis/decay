@@ -11,6 +11,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include <vector>
 #include <map>
@@ -157,14 +158,23 @@ namespace root {
     {}
 
 
-    header(const std::span<const std::byte> source) noexcept
+    header(int fd) noexcept
     {
-      load(source);
+      load(fd);
     }
 
 
-    bool load(std::span<const std::byte> source) noexcept
+    bool load(int fd) noexcept
     {
+      //std::byte raw[sizeof(header)];
+      std::array<std::byte, sizeof(header)> raw;
+
+      if (pread(fd, raw.data(), sizeof(header), 0) != sizeof(header))
+        return false;
+
+      //std::span<const std::byte> source(raw, sizeof(header));
+      std::span<const std::byte> source{raw};
+
       ok = true;
       
       ok &= read_from_and_subspan   (ident,       source);
@@ -202,27 +212,35 @@ namespace root {
     std::string_view           ClassName; // The type of record this is
     std::string_view           Name;      // The Name of this entry
     std::string_view           Title;     // An optional Title
-    std::span<const std::byte> DATA;      // The data store for this record
+    std::span<const std::byte> DATA;      // The data store for this record (if we've read enough bytes)
 
     std::uint64_t base;
     bool          ok{false};
+
+    std::vector<std::byte>     raw;       // The file data
 
     tkey() noexcept
     {}
 
 
-    tkey(std::span<const std::byte> source, const std::uint64_t pos) noexcept
+    tkey(int fd, const std::uint64_t pos, int size = 0) noexcept
     {
-      load(source, pos);
+      load(fd, pos, size);
     }
 
 
-    bool load(std::span<const std::byte> source, const std::uint64_t pos) noexcept
+    bool load(int fd, const std::uint64_t pos, int size = 0) noexcept
     {
       base = pos;
       ok = true;
 
-      source = source.subspan(pos);
+      std::size_t size_to_use = size > 0 ? static_cast<std::size_t>(size) : 2048;
+
+      raw.resize(size_to_use);
+
+      size_to_use = static_cast<std::size_t>(pread(fd, raw.data(), size_to_use, static_cast<std::int64_t>(pos)));
+
+      std::span<const std::byte> source(raw.data(), size_to_use);
 
       const auto start = source.data();
 
@@ -265,7 +283,7 @@ namespace root {
 
       const auto bytes_read = static_cast<std::uint16_t>(source.data() - start);
 
-      DATA = source.subspan(KeyLen - bytes_read, static_cast<std::uint64_t>(Nbytes - KeyLen));
+      DATA = source.subspan(KeyLen - bytes_read, static_cast<std::size_t>(Nbytes - KeyLen));
 
       return ok;
     }
@@ -351,9 +369,9 @@ namespace root {
   {
   public:
 
-    file(std::string path) noexcept
+    file(std::string path, mode_t mode = 0) noexcept
     {
-      open(path);
+      open(path, mode);
 
       load_index();
     }
@@ -361,7 +379,7 @@ namespace root {
 
     bool ok() const noexcept
     {
-      return !file_.empty();
+      return fd_ > 0;
     }
 
 
@@ -373,17 +391,17 @@ namespace root {
 
     auto size() const noexcept
     {
-      return file_.size();
+      return size_;
     }
 
 
-    bool open(std::string_view path) noexcept
+    bool open(std::string_view path, mode_t mode = 0) noexcept
     {
       path_ = path;
 
-      const auto fd = ::open(path_.c_str(), O_RDONLY);
+      fd_ = ::open(path_.c_str(), O_RDONLY, mode);
 
-      if (fd == -1)
+      if (fd_ == -1)
       {
         fmt::print("cannot open root file: {}\n", path_);
         return false;
@@ -391,29 +409,16 @@ namespace root {
 
       struct stat sb;
 
-      if (fstat(fd, &sb) == -1)
+      if (fstat(fd_, &sb) == -1)
       {
         fmt::print("cannot stat root file: {}\n", path_);
-        ::close(fd);
+        ::close(fd_);
         return false;
       }
+
+      size_ = static_cast<std::size_t>(sb.st_size);
       
-      auto data_start = reinterpret_cast<const std::byte*>(mmap(NULL, static_cast<std::size_t>(sb.st_size), PROT_READ, MAP_SHARED, fd, 0));
-
-      ::close(fd);
-
-      if (data_start == reinterpret_cast<const std::byte*>(-1))
-      {
-        fmt::print("cannot map root file: {}\n", path_);
-        return false;
-      }
-
-      file_ = std::span<const std::byte>{ data_start, static_cast<std::size_t>(sb.st_size) };
-
-      //if (madvise(const_cast<std::byte*>(file_.data()), file_.size(), MADV_SEQUENTIAL))
-      //  fmt::print("cannot set access to MADV_SEQUENTIAL");
-
-      if (!h_.load(file_))
+      if (!h_.load(fd_))
       {
         fmt::print("Unable to load root header: {}\n", path_);
         close();
@@ -424,9 +429,9 @@ namespace root {
     }
 
 
-    tkey load_tkey(std::uint64_t pos) const noexcept
+    tkey load_tkey(std::uint64_t pos, int size = 0) const noexcept
     {
-      return tkey(file_, pos);
+      return tkey(fd_, pos, size);
     }
 
 
@@ -436,8 +441,8 @@ namespace root {
       {
         fmt::print("name: {} total_bytes: {} offsets:", lhs, rhs.total_bytes);
 
-        for (const auto& [ cycle, offset ] : rhs.cycles)
-          fmt::print(" {} -> {},", cycle, offset);
+        for (const auto& [ cycle, o ] : rhs.cycles)
+          fmt::print(" {} -> {} [{}],", cycle, o.first, o.second);
 
         fmt::print("\n");
       }
@@ -537,9 +542,6 @@ namespace root {
         return false;
       }
 
-      if (auto r = madvise(const_cast<std::byte*>(floor_page(src.data())) - 32768*2, static_cast<std::size_t>(ceil_page(src.data() + src.size()) - floor_page(src.data())) + 32768*2*2, MADV_DONTNEED))
-        fmt::print("bad madvise: {}\n", r);
-
       if ((err == Z_OK) && (dest_len == dest.size_bytes())) // uncompress is good
       {
         // byteswap the values to convert from Big Endian to native Little Endian
@@ -575,9 +577,9 @@ namespace root {
 
       std::span<T> build = r;
 
-      for (const auto& [c, offset] : it->second.cycles)
+      for (const auto& [c, o] : it->second.cycles)
       {
-        auto t = load_tkey(offset);
+        auto t = load_tkey(o.first, o.second);
 
         if (!t.ok)
         {
@@ -671,7 +673,7 @@ namespace root {
 
     // start of parsing KeysList record entries
 
-    void explore_keyslist(const tkey& t) const noexcept
+    /*void explore_keyslist(const tkey& t) const noexcept
     {
       if (t.Nbytes < 0)
         return;
@@ -698,7 +700,7 @@ namespace root {
       }
 
       fmt::print("got bad keyslist\n");
-    }
+    }*/
 
 
     void print_header() const noexcept
@@ -710,10 +712,10 @@ namespace root {
 
     void close() noexcept
     {
-      if (!file_.empty())
+      if (fd_)
       {
-        munmap((void*)file_.data(), file_.size());
-        file_ = {};
+        ::close(fd_);
+        fd_ = 0;
       }
     }
 
@@ -736,27 +738,16 @@ namespace root {
         {
           auto& m = baskets_[std::string{t.Name}];
 
-          m.cycles[t.Cycle] = t.base;
+          m.cycles[t.Cycle] = { t.base, t.Nbytes };
           m.total_bytes    += t.ObjLen;
-          
         }
-
-        auto p = const_cast<std::byte*>(file_.data() + pos);
-
-        p = reinterpret_cast<decltype(p)>(std::max(reinterpret_cast<std::uint64_t>(file_.data()), reinterpret_cast<std::uint64_t>(floor_page(p) - 32768*2)));
-
-        if (auto r = madvise(p, static_cast<std::size_t>(std::abs(t.Nbytes)) + 32768*2 + 4096, MADV_DONTNEED))
-          fmt::print("bad madvise: {}", r);
 
         //fmt::print("classname: {} pos: {} bytes: {}\n", t.ClassName, pos, t.Nbytes);
 
         pos += static_cast<std::uint64_t>(std::abs(t.Nbytes)); // -ve indicates a deleted entry
         
         if (pos >= size())
-        {
-          //madvise(const_cast<std::byte*>(file_.data() + 0), file_.size(), MADV_DONTNEED);
           return true;
-        }
       
         t = load_tkey(pos);
       }
@@ -767,15 +758,17 @@ namespace root {
 
     std::string path_;
 
-    std::span<const std::byte> file_;
+    //std::span<const std::byte> file_;
+    int fd_{0};
+    std::uint64_t size_{0};
 
     // For a particular measure, eg: h1_PX, there are a number of TBasket's with ascending Cycle identifiers.
     // These are the compressed data, so store them here with the offset to access.
 
     struct basket_info
     {
-      std::uint64_t                total_bytes{0};  // total uncompressed bytes available for this (sum of all cycle TBasket's)
-      std::map<int, std::uint64_t> cycles;          // map from cycle_id -> offset_in_file
+      std::uint64_t                total_bytes{0};           // total uncompressed bytes available for this (sum of all cycle TBasket's)
+      std::map<int, std::pair<std::uint64_t, int>> cycles;   // map from cycle_id -> (offset_in_file, size of block)
     };
 
     std::map<std::string, basket_info, std::less<>> baskets_; // name -> baskets_for_this_item

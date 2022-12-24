@@ -18,8 +18,8 @@
 #include <string_view>
 #include <utility>
 #include <array>
-
-// TODO: fix this breaking for variable names with 11 (or more) characters
+#include <limits>
+#include <fstream>
 
 namespace std {
 
@@ -29,7 +29,7 @@ namespace std {
 template<movency::integral T>
 constexpr T byteswap(const T n) noexcept
 {
-  const auto in_arr = std::bit_cast<std::array<std::uint8_t, sizeof(T)>>(n);
+  const auto in_arr = std::bit_cast<std::array<std::byte, sizeof(T)>>(n);
 
   std::remove_const_t<decltype(in_arr)> out_arr;
 
@@ -54,6 +54,23 @@ constexpr auto to_underlying(const Enum e) noexcept
 
 namespace movency {
 namespace root {
+
+  // floor a pointer to a page boundary
+  template<class T>
+  constexpr auto floor_page(T* ptr) noexcept
+  {
+    constexpr std::uintptr_t mask{std::numeric_limits<std::uint64_t>::max() - 0b111111111111};
+
+    return reinterpret_cast<T*>(reinterpret_cast<std::uintptr_t>(ptr) & mask);
+  }
+
+  // ceil a pointer to a page boundary
+  template<class T>
+  constexpr auto ceil_page(T* ptr) noexcept
+  {
+    return floor_page(ptr) + 4096;
+  }
+
 
   // utility template to provide a uint of a fixed size
 
@@ -299,7 +316,7 @@ namespace root {
       if (src[0] == 'Z' && src[1] == 'S' && src[2] == 1)
         return engine::zstd;
 
-      //fmt::print("*******{} {} {}\n\n", src[0], src[1], src[2]);
+      fmt::print("*******{} {} {}\n\n", src[0], src[1], src[2]);
       
       return engine::none;
     }
@@ -393,6 +410,9 @@ namespace root {
 
       file_ = std::span<const std::byte>{ data_start, static_cast<std::size_t>(sb.st_size) };
 
+      //if (madvise(const_cast<std::byte*>(file_.data()), file_.size(), MADV_SEQUENTIAL))
+      //  fmt::print("cannot set access to MADV_SEQUENTIAL");
+
       if (!h_.load(file_))
       {
         fmt::print("Unable to load root header: {}\n", path_);
@@ -471,24 +491,36 @@ namespace root {
       }
 
       auto src = t.DATA;
+/*
+      std::vector<std::byte> vsrc;
+      vsrc.resize(t.DATA.size());
 
+      {
+        std::ifstream f(path_+"2", std::ios::in | std::ios::binary);
+        f.seekg(t.DATA.data() - file_.data());
+        f.read(reinterpret_cast<char*>(vsrc.data()), std::ssize(vsrc));
+        f.close();
+      }
+
+      std::span<const std::byte> src(vsrc);
+*/
       compress_header h(src);
 
       if (h.e == compress_header::engine::none)
       {
-        fmt::print("Bad compress engine\n");
+        fmt::print("bad compressengine\n");
         return false;
       }
 
       if (h.compressed_size != src.size())
       {
-        fmt::print("bad compressed size");
+        fmt::print("bad compressed size\n");
         return false;
       }
 
       if (h.uncompressed_size != t.ObjLen)
       {
-        fmt::print("bad uncompressed size");
+        fmt::print("bad uncompressed size\n");
         return false;
       }
 
@@ -504,6 +536,9 @@ namespace root {
         fmt::print("compression type not supported: '{}'\n", std::to_underlying(h.e));
         return false;
       }
+
+      if (auto r = madvise(const_cast<std::byte*>(floor_page(src.data())) - 32768*2, static_cast<std::size_t>(ceil_page(src.data() + src.size()) - floor_page(src.data())) + 32768*2*2, MADV_DONTNEED))
+        fmt::print("bad madvise: {}\n", r);
 
       if ((err == Z_OK) && (dest_len == dest.size_bytes())) // uncompress is good
       {
@@ -552,11 +587,19 @@ namespace root {
 
         auto entries = t.ObjLen / sizeof(T);
 
-        if (!uncompress(build.subspan(pos, entries), t))
+        auto dest = build.subspan(pos, entries);
+
+        if (t.ObjLen == t.DATA.size())
         {
-          fmt::print("Unable to uncompress index: {}\n", c);
-          return {};
+          for (std::size_t i = 0; i != dest.size(); ++i)
+            dest[i] = std::bit_cast<T>(std::byteswap(std::bit_cast<uint_of_width<sizeof(T)>>(read_from<T>(&t.DATA[i * sizeof(T)]))));
         }
+        else
+          if (!uncompress(dest, t))
+          {
+            fmt::print("Unable to uncompress index: {}\n", c);
+            return {};
+          }
 
         pos += entries;
       }
@@ -695,12 +738,25 @@ namespace root {
 
           m.cycles[t.Cycle] = t.base;
           m.total_bytes    += t.ObjLen;
+          
         }
 
-        pos += static_cast<std::uint64_t>(abs(t.Nbytes)); // -ve indicates a deleted entry
+        auto p = const_cast<std::byte*>(file_.data() + pos);
+
+        p = reinterpret_cast<decltype(p)>(std::max(reinterpret_cast<std::uint64_t>(file_.data()), reinterpret_cast<std::uint64_t>(floor_page(p) - 32768*2)));
+
+        if (auto r = madvise(p, static_cast<std::size_t>(std::abs(t.Nbytes)) + 32768*2 + 4096, MADV_DONTNEED))
+          fmt::print("bad madvise: {}", r);
+
+        //fmt::print("classname: {} pos: {} bytes: {}\n", t.ClassName, pos, t.Nbytes);
+
+        pos += static_cast<std::uint64_t>(std::abs(t.Nbytes)); // -ve indicates a deleted entry
         
         if (pos >= size())
+        {
+          //madvise(const_cast<std::byte*>(file_.data() + 0), file_.size(), MADV_DONTNEED);
           return true;
+        }
       
         t = load_tkey(pos);
       }

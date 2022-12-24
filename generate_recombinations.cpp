@@ -77,7 +77,7 @@ void mass_combinations( const std::string filename   = "../data/Lb2pKmm_mgUp_201
     if (ap != 0 && bp == 0 && cp != 0 && dp == 0)
       continue;
 
-    const auto name = fmt::format("{}{}{}{}", names[ap], names[bp], names[cp], names[dp]);
+    const auto name = fmt::format("{}_{}_{}_{}", names[ap], names[bp], names[cp], names[dp]);
 
     output_tree->Branch(name.c_str(), &vals[ap][bp][cp][dp], fmt::format("{}{}", name, "/D").c_str());
   }

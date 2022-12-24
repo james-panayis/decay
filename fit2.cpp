@@ -211,6 +211,8 @@ constexpr auto get_daughters(const std::string_view name)
       default:
                 fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: invalid column character {} in column {}\n", i, name);
     }
+
+    ++i;
   }
 
   return daughters;
@@ -236,12 +238,11 @@ auto fit()
   const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
   //const std::size_t thread_count{1};
 
+  auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950); //make before creation of r to avert root segfault (magic!)
+
   const movency::root::file r("cache/mass.root");
 
-  fmt::print("read\n");
-
-  int temp;
-  //std::cin >> temp;
+  //fmt::print("read\n");
 
   const auto cols = r.get_names();
 
@@ -252,8 +253,6 @@ auto fit()
   std::vector<std::vector<peak_t>> peak_sets(event_count);
 
   std::vector<std::vector<peak_record>> best_local_peaks(thread_count); // score, event idx, peak idx, peak name
-
-  auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950);
 
   std::mutex canvas_mutex;
 
@@ -288,8 +287,6 @@ auto fit()
       fmt::print("use decay: {} -> {} ? [y/n]\n", best_peaks[i].name, cols[best_peaks[i].graph_idx].first);
 
       char in;
-
-      std::exit(1);
 
       std::cin >> in;
 
@@ -770,9 +767,9 @@ auto fit()
           }
         }
 
-        {
-          const std::string name{fmt::format("{}_{}", cols[n].first, iteration)};
+        const std::string name{fmt::format("{}_{}", cols[n].first, iteration)};
 
+        {
           const std::scoped_lock lock(canvas_mutex);
 
           TMultiGraph mgraph{name.c_str(), name.c_str()};
@@ -863,6 +860,20 @@ auto fit()
           mgraph.Draw("a");
 
           canvas->SaveAs(fmt::format("cache/graph_{}.bmp", name).c_str());
+        }
+
+        if (std::system(fmt::format("convert cache/graph_{}.bmp cache/graph{}.png", name, name).c_str()))
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "Conversion from bmp to png failed\n");
+
+          std::exit(1);
+        }
+
+        if (std::system(fmt::format("rm cache/graph_{}.bmp", name).c_str()))
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "Deletion of bmp file failed\n");
+
+          std::exit(1);
         }
 
         fmt::print("finished with variable {} ({}/{})\n\n", cols[n].first, n + 1, cols.size());

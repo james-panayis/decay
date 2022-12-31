@@ -767,7 +767,7 @@ auto fit()
           }
         }
 
-        const std::string name{fmt::format("{}_{}", cols[n].first, iteration)};
+        const std::string name{fmt::format("{}_iteration{}", cols[n].first, iteration)};
 
         {
           const std::scoped_lock lock(canvas_mutex);
@@ -862,7 +862,7 @@ auto fit()
           canvas->SaveAs(fmt::format("cache/graph_{}.bmp", name).c_str());
         }
 
-        if (std::system(fmt::format("convert cache/graph_{}.bmp cache/graph{}.png", name, name).c_str()))
+        if (std::system(fmt::format("convert cache/graph_{}.bmp cache/graph_{}.png", name, name).c_str()))
         {
           fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "Conversion from bmp to png failed\n");
 

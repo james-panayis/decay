@@ -3,8 +3,6 @@
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TMultiGraph.h"
-#include "TLatex.h"
-//#include "ROOT/RDataFrame.hxx"
 
 #include "timeblit/random.hpp"
 
@@ -162,7 +160,7 @@ int main()
   auto connections = []
   {
     std::array<std::array<std::array<double, variable_count>, variable_count>, depth - 1> out;
-    
+
     for (auto& i : out)
       for (auto& j : i)
         for (auto& k : j)
@@ -173,21 +171,30 @@ int main()
 
   bool print_next = true;
 
-  int cont{0};
+  int cont{1};
 
   constexpr std::size_t bucket_count{50};
 
   std::array<std::array<double, 2>, bucket_count> histogram{};
 
+  const std::size_t train_cutoff_index = (data.size() * 9) / 10;
+
+  bool train{true};
+
   auto run_iteration = [&]
   {
-    std::size_t index = movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, data.size() - 1));
+    auto index = [&]() -> std::size_t
+    {
+      if (train)
+        return movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
+      else 
+        return movency::random::fast(movency::random::uniform_distribution(train_cutoff_index, data.size() - 1));
+    }();
 
     std::array<std::array<double, variable_count>, depth> nodes;
 
     for (std::size_t i = 0; i < variable_count; ++i)
     {
-      //nodes[0][i] = logistic(data[index][i]);
       nodes[0][i] = data[index][i];
       //fmt::print("*{} ", nodes[0][i]);
     }
@@ -213,7 +220,6 @@ int main()
       score += nodes.back()[i];
 
     score = logistic(score) + 0.5;
-    //score = score / variable_count;
 
     // begin backpropagation of errors
 
@@ -243,13 +249,15 @@ int main()
         //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
       }
 
-    // begin updating of weights
+    if (train)
+    {
+      // begin updating of weights
 
-    for (std::size_t i = 0; i < depth - 1; ++i)
-      for (std::size_t j = 0; j < variable_count; ++j)
-        for (std::size_t k = 0; k < variable_count; ++k)
-          connections[i][j][k] += 10 * errors[i + 1][j] * nodes[i][k];
-
+      for (std::size_t i = 0; i < depth - 1; ++i)
+        for (std::size_t j = 0; j < variable_count; ++j)
+          for (std::size_t k = 0; k < variable_count; ++k)
+            connections[i][j][k] += 10 * errors[i + 1][j] * nodes[i][k];
+    }
 
     //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
     //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.001)))
@@ -271,7 +279,7 @@ int main()
 
     //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
     //if(false)
-    if (!cont--)
+    if (!--cont)
     {
       fmt::print("\n\nscore: {}, {}\nnodes:\n", score, target);
 
@@ -279,7 +287,6 @@ int main()
       {
         for (std::size_t i = 0; i < depth; ++i)
           fmt::print("{: f}  ", nodes[i][j]);
-          //fmt::print("{}  ", nodes[i][j]);
 
         fmt::print("\n");
       }
@@ -289,9 +296,9 @@ int main()
       for (std::size_t j = 0; j < variable_count; ++j)
       {
         fmt::print(" unused    ");
+
         for (std::size_t i = 1; i < depth; ++i)
           fmt::print("{: f}  ", errors[i][j]);
-          //fmt::print("{}  ", nodes[i][j]);
 
         fmt::print("\n");
       }
@@ -302,12 +309,11 @@ int main()
       for (std::size_t layer = 0; layer < depth - 1; ++layer)
       {
         fmt::print("\nconnections layer {}:\n", layer);
+
         for (std::size_t i = 0; i < variable_count; ++i)
         {
           for (std::size_t j = 0; j < variable_count; ++j)
-          {
             fmt::print("{: f}  ", connections[layer][i][j]);
-          }
 
           fmt::print("\n");
         }
@@ -336,6 +342,29 @@ int main()
       for (auto& b : histogram)
         for (auto& t : b)
           t = 0;
+
+      {
+        char input;
+
+        fmt::print("For next iterations, tEst or tRain? ");
+
+        while (true)
+        {
+          std::cin >> input;
+
+          if (input == 'E')
+            train = false;
+          else if (input == 'R')
+            train = true;
+          else
+          {
+            fmt::print("Invalid. Try again. ");
+            continue;
+          }
+
+          break;
+        }
+      }
 
       fmt::print("\nInput rep count: ");
       std::cin >> cont;

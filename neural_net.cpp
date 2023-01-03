@@ -34,6 +34,8 @@ template<std::size_t P>
     return x * pow<P/2>(x) * pow<P/2>(x);
 }
 
+//const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
+const std::size_t thread_count{4};
 
 using namespace std::literals;
 
@@ -169,143 +171,34 @@ int main()
     return out;
   }();
 
-  bool print_next = true;
+  bool train{true};
 
-  int cont{1};
+  std::vector<std::size_t> reps(thread_count, 0);
+
+  //reps[0]++;
+
+  std::vector<decltype(connections)> updates(thread_count);
 
   constexpr std::size_t bucket_count{50};
 
-  std::array<std::array<double, 2>, bucket_count> histogram{};
+  std::vector<std::array<std::array<double, 2>, bucket_count>> histograms(thread_count);
 
-  const std::size_t train_cutoff_index = (data.size() * 9) / 10;
+  std::size_t excess_reps{0};
 
-  bool train{true};
-
-  auto run_iteration = [&]
+  auto combine_updates = [&]
   {
-    auto index = [&]() -> std::size_t
+    for (auto& update : updates)
     {
-      if (train)
-        return movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
-      else 
-        return movency::random::fast(movency::random::uniform_distribution(train_cutoff_index, data.size() - 1));
-    }();
-
-    std::array<std::array<double, variable_count>, depth> nodes;
-
-    for (std::size_t i = 0; i < variable_count; ++i)
-    {
-      nodes[0][i] = data[index][i];
-      //fmt::print("*{} ", nodes[0][i]);
-    }
-    //fmt::print("{}\n\n", data[index][full_variable_count]);
-
-    for (std::size_t i = 1; i < depth; ++i)
-      for (std::size_t j = 0; j < variable_count; ++j)
-      {
-        nodes[i][j] = 0;
-
-        for (std::size_t k = 0; k < variable_count; ++k)
-        {
-          nodes[i][j] += nodes[i - 1][k] * connections[i - 1][j][k];
-        }
-
-        nodes[i][j] = logistic(nodes[i][j]);
-        //fmt::print("***{} ", nodes[i][j]);
-      }
-
-    double score = 0;
-
-    for (std::size_t i = 0; i < variable_count; ++i)
-      score += nodes.back()[i];
-
-    score = logistic(score) + 0.5;
-
-    // begin backpropagation of errors
-
-    const auto target = data[index][full_variable_count];
-
-    const auto bias = target ? fraction_background : fraction_signal;
-
-    histogram[static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
-    //fmt::print("s{}, stb{}\n", score, score * bucket_count);
-
-    const auto error = (target - score) * bias * derivative_logistic_from_logistic(score - 0.5);
-
-    decltype(nodes) errors;
-
-    for (std::size_t i = 0; i < variable_count; ++i)
-      errors.back()[i] = error / variable_count * derivative_logistic_from_logistic(nodes.back()[i]);
-
-    for (std::size_t i = depth - 2; i > 0; --i)
-      for (std::size_t j = 0; j < variable_count; ++j)
-      {
-        errors[i][j] = 0;
-
-        for (std::size_t k = 0; k < variable_count; ++k)
-          errors[i][j] += errors[i + 1][k] * connections[i][k][j];
-
-        errors[i][j] *= derivative_logistic_from_logistic(nodes[i][j]);
-        //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
-      }
-
-    if (train)
-    {
-      // begin updating of weights
-
       for (std::size_t i = 0; i < depth - 1; ++i)
         for (std::size_t j = 0; j < variable_count; ++j)
           for (std::size_t k = 0; k < variable_count; ++k)
-            connections[i][j][k] += 10 * errors[i + 1][j] * nodes[i][k];
+            connections[i][j][k] += update[i][j][k];
+
+      update = {};
     }
 
-    //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
-    //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.001)))
-    if (false)
+    if (!excess_reps)
     {
-      if (data[index][full_variable_count] == print_next)
-      {
-        //fmt::print("                                                       ");
-        if (print_next)
-          fmt::print("\n");
-        else
-          fmt::print("       ");
-
-        fmt::print("score: {:>.7f}, {:>.7f}", score, target);
-
-        print_next = !print_next;
-      }
-    }
-
-    //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
-    //if(false)
-    if (!--cont)
-    {
-      fmt::print("\n\nscore: {}, {}\nnodes:\n", score, target);
-
-      for (std::size_t j = 0; j < variable_count; ++j)
-      {
-        for (std::size_t i = 0; i < depth; ++i)
-          fmt::print("{: f}  ", nodes[i][j]);
-
-        fmt::print("\n");
-      }
-
-      fmt::print("\n\nerrors:\n");
-
-      for (std::size_t j = 0; j < variable_count; ++j)
-      {
-        fmt::print(" unused    ");
-
-        for (std::size_t i = 1; i < depth; ++i)
-          fmt::print("{: f}  ", errors[i][j]);
-
-        fmt::print("\n");
-      }
-
-      fmt::print("\n");
-
-      //if(false)
       for (std::size_t layer = 0; layer < depth - 1; ++layer)
       {
         fmt::print("\nconnections layer {}:\n", layer);
@@ -319,29 +212,43 @@ int main()
         }
       }
 
+      std::array<std::array<double, 2>, bucket_count> main_histogram{};
+
+      for (auto& histogram : histograms)
+        for (std::size_t bucket_no = 0; bucket_no < bucket_count; ++bucket_no)
+          for (std::size_t target = 0; target <= 1; ++target)
+          {
+            main_histogram[bucket_no][target] += histogram[bucket_no][target];
+
+            histogram[bucket_no][target] = 0;
+          }
+
       const auto max_bucket = [&]
       {
-        const auto temp = std::ranges::max(histogram, {}, [](auto b){ return b[0] + b[1]; });
+        const auto temp = std::ranges::max(main_histogram, {}, [](auto b){ return b[0] + b[1]; });
 
         return temp[0] + temp[1];
       }();
 
-      for (const auto& bucket : histogram)
+      if (max_bucket)
       {
-        int i = 0;
+        for (const auto& bucket : main_histogram)
+        {
+          int i = 0;
 
-        for (; i < bucket[0] * 100 / max_bucket; i++)
-          fmt::print("0");
+          for (; i < bucket[0] * 100 / max_bucket; i++)
+            fmt::print("0");
 
-        for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
-          fmt::print("1");
+          for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
+            fmt::print("1");
 
-        fmt::print(";\n");
+          fmt::print(";\n");
+        }
+
+        for (auto& b : main_histogram)
+          for (auto& t : b)
+            t = 0;
       }
-
-      for (auto& b : histogram)
-        for (auto& t : b)
-          t = 0;
 
       {
         char input;
@@ -367,17 +274,202 @@ int main()
       }
 
       fmt::print("\nInput rep count: ");
-      std::cin >> cont;
-
-      fmt::print("\n");
+      std::cin >> excess_reps;
     }
 
-    return score;
+    constexpr std::size_t max_reps_per_thread{5};
+
+    if (excess_reps / thread_count >= max_reps_per_thread)
+    {
+      excess_reps -= thread_count * max_reps_per_thread;
+
+      for (auto& rep : reps)
+        rep = max_reps_per_thread;
+    }
+    else
+      for (std::size_t i = thread_count; i != 0; --i)
+      {
+        const auto next_reps = excess_reps / i;
+
+        excess_reps -= next_reps;
+
+        reps[i - 1] = next_reps; 
+      }
+
+    /*fmt::print("ers: {}\n", excess_reps);
+
+    for (auto r : reps)
+      fmt::print(" {}", r);
+
+    fmt::print("\n");*/
+
+    return;
   };
 
-  while(true)
+  std::barrier sync_point(static_cast<std::ptrdiff_t>(thread_count), combine_updates);
+
+  //bool print_next = true;
+
+  std::vector<std::mutex> update_mutexes(thread_count);
+
+  const std::size_t train_cutoff_index = (data.size() * 9) / 10;
+
+  auto run_iteration = [&](const auto thread_no)
   {
-    run_iteration();
+    while (true)
+    {
+      //fmt::print("\none\n");
+      while (reps[thread_no]--)
+      {
+        //fmt::print("\ntwo\n");
+        auto index = [&]() -> std::size_t
+        {
+          if (train)
+            return movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
+          else 
+            return movency::random::fast(movency::random::uniform_distribution(train_cutoff_index, data.size() - 1));
+        }();
+
+        std::array<std::array<double, variable_count>, depth> nodes;
+
+        for (std::size_t i = 0; i < variable_count; ++i)
+        {
+          nodes[0][i] = data[index][i];
+          //fmt::print("*{} ", nodes[0][i]);
+        }
+        //fmt::print("{}\n\n", data[index][full_variable_count]);
+
+        for (std::size_t i = 1; i < depth; ++i)
+          for (std::size_t j = 0; j < variable_count; ++j)
+          {
+            nodes[i][j] = 0;
+
+            for (std::size_t k = 0; k < variable_count; ++k)
+            {
+              nodes[i][j] += nodes[i - 1][k] * connections[i - 1][j][k];
+            }
+
+            nodes[i][j] = logistic(nodes[i][j]);
+            //fmt::print("***{} ", nodes[i][j]);
+          }
+
+        double score = 0;
+
+        for (std::size_t i = 0; i < variable_count; ++i)
+          score += nodes.back()[i];
+
+        score = logistic(score) + 0.5;
+
+        // begin backpropagation of errors
+
+        const auto target = data[index][full_variable_count];
+
+        const auto bias = target ? fraction_background : fraction_signal;
+
+        histograms[thread_no][static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
+        //fmt::print("s{}, stb{}\n", score, score * bucket_count);
+
+        const auto error = (target - score) * bias * derivative_logistic_from_logistic(score - 0.5);
+
+        decltype(nodes) errors;
+
+        for (std::size_t i = 0; i < variable_count; ++i)
+          errors.back()[i] = error / variable_count * derivative_logistic_from_logistic(nodes.back()[i]);
+
+        for (std::size_t i = depth - 2; i > 0; --i)
+          for (std::size_t j = 0; j < variable_count; ++j)
+          {
+            errors[i][j] = 0;
+
+            for (std::size_t k = 0; k < variable_count; ++k)
+              errors[i][j] += errors[i + 1][k] * connections[i][k][j];
+
+            errors[i][j] *= derivative_logistic_from_logistic(nodes[i][j]);
+            //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
+          }
+
+        if (train)
+        {
+          // begin updating of weights
+
+          for (std::size_t i = 0; i < depth - 1; ++i)
+            for (std::size_t j = 0; j < variable_count; ++j)
+              for (std::size_t k = 0; k < variable_count; ++k)
+                updates[thread_no][i][j][k] += errors[i + 1][j] * nodes[i][k];
+        }
+
+        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
+        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.001)))
+        /*if (false)
+        {
+          if (data[index][full_variable_count] == print_next)
+          {
+            //fmt::print("                                                       ");
+            if (print_next)
+              fmt::print("\n");
+            else
+              fmt::print("       ");
+
+            fmt::print("score: {:>.7f}, {:>.7f}", score, target);
+
+            print_next = !print_next;
+          }
+        }*/
+
+        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
+        if(false)
+        //if (!reps[thread_count]--)
+        {
+          fmt::print("\n\nscore: {}, {}\nnodes:\n", score, target);
+
+          for (std::size_t j = 0; j < variable_count; ++j)
+          {
+            for (std::size_t i = 0; i < depth; ++i)
+              fmt::print("{: f}  ", nodes[i][j]);
+
+            fmt::print("\n");
+          }
+
+          fmt::print("\n\nerrors:\n");
+
+          for (std::size_t j = 0; j < variable_count; ++j)
+          {
+            fmt::print(" unused    ");
+
+            for (std::size_t i = 1; i < depth; ++i)
+              fmt::print("{: f}  ", errors[i][j]);
+
+            fmt::print("\n");
+          }
+
+          fmt::print("\n");
+
+          /*for (std::size_t layer = 0; layer < depth - 1; ++layer)
+          {
+            fmt::print("\nconnections layer {}:\n", layer);
+
+            for (std::size_t i = 0; i < variable_count; ++i)
+            {
+              for (std::size_t j = 0; j < variable_count; ++j)
+                fmt::print("{: f}  ", connections[layer][i][j]);
+
+              fmt::print("\n");
+            }
+          }*/
+        }
+      }
+
+      sync_point.arrive_and_wait();
+    }
+  };
+
+  {
+    std::vector<std::jthread> loop_threads{};
+
+    for (std::uint32_t i = 0; i < thread_count; ++i)
+      loop_threads.emplace_back(run_iteration, i);
+
+    fmt::print("Spawned {} threads.\n", thread_count);
   }
 
   fmt::print("done\n");

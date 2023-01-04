@@ -173,29 +173,23 @@ int main()
 
   bool train{true};
 
-  std::vector<std::size_t> reps(thread_count, 0);
-
-  //reps[0]++;
-
   std::vector<decltype(connections)> updates(thread_count);
 
   constexpr std::size_t bucket_count{50};
 
   std::vector<std::array<std::array<double, 2>, bucket_count>> histograms(thread_count);
 
-  std::size_t excess_reps{0};
+  std::atomic<std::ptrdiff_t> reps{0};
+
+  std::ptrdiff_t excess_reps{0};
 
   auto combine_updates = [&]
   {
     for (auto& update : updates)
-    {
       for (std::size_t i = 0; i < depth - 1; ++i)
         for (std::size_t j = 0; j < variable_count; ++j)
           for (std::size_t k = 0; k < variable_count; ++k)
             connections[i][j][k] += update[i][j][k];
-
-      update = {};
-    }
 
     if (!excess_reps)
     {
@@ -277,25 +271,9 @@ int main()
       std::cin >> excess_reps;
     }
 
-    constexpr std::size_t max_reps_per_thread{5};
+    reps = std::min(excess_reps, 100l);
 
-    if (excess_reps / thread_count >= max_reps_per_thread)
-    {
-      excess_reps -= thread_count * max_reps_per_thread;
-
-      for (auto& rep : reps)
-        rep = max_reps_per_thread;
-    }
-    else
-      for (std::size_t i = thread_count; i != 0; --i)
-      {
-        const auto next_reps = excess_reps / i;
-
-        excess_reps -= next_reps;
-
-        reps[i - 1] = next_reps; 
-      }
-
+    excess_reps -= reps;
     /*fmt::print("ers: {}\n", excess_reps);
 
     for (auto r : reps)
@@ -319,8 +297,13 @@ int main()
     while (true)
     {
       //fmt::print("\none\n");
-      while (reps[thread_no]--)
+      while (true)
       {
+        const auto r = reps.fetch_sub(1, std::memory_order_relaxed);
+
+        if (r <= 0)
+          break;
+
         //fmt::print("\ntwo\n");
         auto index = [&]() -> std::size_t
         {
@@ -458,8 +441,9 @@ int main()
           }*/
         }
       }
-
       sync_point.arrive_and_wait();
+
+      updates[thread_no] = {};
     }
   };
 

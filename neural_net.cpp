@@ -34,8 +34,8 @@ template<std::size_t P>
     return x * pow<P/2>(x) * pow<P/2>(x);
 }
 
-//const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
-const std::size_t thread_count{4};
+const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
+//const std::size_t thread_count{4};
 
 using namespace std::literals;
 
@@ -254,32 +254,29 @@ int main()
           std::cin >> input;
 
           if (input == 'E')
-            train = false;
-          else if (input == 'R')
-            train = true;
-          else
           {
-            fmt::print("Invalid. Try again. ");
-            continue;
-          }
+            train = false;
 
-          break;
+            reps = 0;
+
+            break;
+          }
+          else if (input == 'R')
+          {
+            train = true;
+
+            fmt::print("\nInput rep count: ");
+            std::cin >> excess_reps;
+
+            break;
+          }
         }
       }
-
-      fmt::print("\nInput rep count: ");
-      std::cin >> excess_reps;
     }
 
     reps = std::min(excess_reps, 100l);
 
     excess_reps -= reps;
-    /*fmt::print("ers: {}\n", excess_reps);
-
-    for (auto r : reps)
-      fmt::print(" {}", r);
-
-    fmt::print("\n");*/
 
     return;
   };
@@ -299,19 +296,40 @@ int main()
       //fmt::print("\none\n");
       while (true)
       {
-        const auto r = reps.fetch_sub(1, std::memory_order_relaxed);
+        std::size_t index;
 
-        if (r <= 0)
-          break;
+        std::ptrdiff_t r;
+
+        if (train)
+        {
+          r = reps.fetch_sub(1, std::memory_order_relaxed);
+
+          index = movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
+
+          if (r <= 0)
+            break;
+        }
+        else
+        {
+          r = reps.fetch_add(1, std::memory_order_relaxed);
+
+          index = train_cutoff_index + static_cast<std::size_t>(r);
+
+          if (index >= data.size())
+            break;
+        }
+
+        //const index, r;
 
         //fmt::print("\ntwo\n");
-        auto index = [&]() -> std::size_t
+        /*auto index = [&]() -> std::size_t
         {
           if (train)
             return movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
           else 
-            return movency::random::fast(movency::random::uniform_distribution(train_cutoff_index, data.size() - 1));
-        }();
+          {
+          }
+        }();*/
 
         std::array<std::array<double, variable_count>, depth> nodes;
 
@@ -343,42 +361,44 @@ int main()
 
         score = logistic(score) + 0.5;
 
-        // begin backpropagation of errors
-
         const auto target = data[index][full_variable_count];
 
         const auto bias = target ? fraction_background : fraction_signal;
 
-        histograms[thread_no][static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
-        //fmt::print("s{}, stb{}\n", score, score * bucket_count);
-
-        const auto error = (target - score) * bias * derivative_logistic_from_logistic(score - 0.5);
-
-        decltype(nodes) errors;
-
-        for (std::size_t i = 0; i < variable_count; ++i)
-          errors.back()[i] = error / variable_count * derivative_logistic_from_logistic(nodes.back()[i]);
-
-        for (std::size_t i = depth - 2; i > 0; --i)
-          for (std::size_t j = 0; j < variable_count; ++j)
-          {
-            errors[i][j] = 0;
-
-            for (std::size_t k = 0; k < variable_count; ++k)
-              errors[i][j] += errors[i + 1][k] * connections[i][k][j];
-
-            errors[i][j] *= derivative_logistic_from_logistic(nodes[i][j]);
-            //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
-          }
-
         if (train)
         {
+          // begin backpropagation of errors
+
+          const auto error = (target - score) * bias * derivative_logistic_from_logistic(score - 0.5);
+
+          decltype(nodes) errors;
+
+          for (std::size_t i = 0; i < variable_count; ++i)
+            errors.back()[i] = error / variable_count * derivative_logistic_from_logistic(nodes.back()[i]);
+
+          for (std::size_t i = depth - 2; i > 0; --i)
+            for (std::size_t j = 0; j < variable_count; ++j)
+            {
+              errors[i][j] = 0;
+
+              for (std::size_t k = 0; k < variable_count; ++k)
+                errors[i][j] += errors[i + 1][k] * connections[i][k][j];
+
+              errors[i][j] *= derivative_logistic_from_logistic(nodes[i][j]);
+              //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
+            }
+
           // begin updating of weights
 
           for (std::size_t i = 0; i < depth - 1; ++i)
             for (std::size_t j = 0; j < variable_count; ++j)
               for (std::size_t k = 0; k < variable_count; ++k)
                 updates[thread_no][i][j][k] += errors[i + 1][j] * nodes[i][k];
+        }
+        else
+        {
+          histograms[thread_no][static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
+          //fmt::print("s{}, stb{}\n", score, score * bucket_count);
         }
 
         //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
@@ -400,7 +420,7 @@ int main()
         }*/
 
         //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
-        if(false)
+        /*if(false)
         //if (!reps[thread_count]--)
         {
           fmt::print("\n\nscore: {}, {}\nnodes:\n", score, target);
@@ -427,7 +447,7 @@ int main()
 
           fmt::print("\n");
 
-          /*for (std::size_t layer = 0; layer < depth - 1; ++layer)
+          for (std::size_t layer = 0; layer < depth - 1; ++layer)
           {
             fmt::print("\nconnections layer {}:\n", layer);
 
@@ -438,8 +458,8 @@ int main()
 
               fmt::print("\n");
             }
-          }*/
-        }
+          }
+        }*/
       }
       sync_point.arrive_and_wait();
 

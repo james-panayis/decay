@@ -20,7 +20,9 @@
 #include <iostream>
 #include <barrier>
 
+
 using namespace movency;
+
 
 // x to the power of non-negative integer P
 template<std::size_t P>
@@ -34,6 +36,7 @@ template<std::size_t P>
     return x * pow<P/2>(x) * pow<P/2>(x);
 }
 
+
 const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
 //const std::size_t thread_count{4};
 
@@ -41,7 +44,6 @@ using namespace std::literals;
 
 //constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OWNPV"sv, "h1_P"sv, "h1_PT"sv, "h2_P"sv, "h2_PT"sv, "Lres_FD_OWNPV"sv, "Jpsi_FD_OWNPV"sv, "Lres_TAUCHI2"sv, "Lb_IP_OWNPV"sv, "Jpsi_P"sv, "Jpsi_ENDVERTEX_CHI2"sv, "Lres_ENDVERTEX_CHI2"sv});
 constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OWNPV"sv, "h1_P"sv, "h1_PT"sv, "h2_P"sv, "h2_PT"sv, "Lres_FD_OWNPV"sv, "Jpsi_FD_OWNPV"sv, "Lres_TAUCHI2"sv, "Lb_IP_OWNPV"sv, "Jpsi_P"sv, "Jpsi_ENDVERTEX_CHI2"sv, "Lres_ENDVERTEX_CHI2"sv, "Lb_M"sv});
-//constexpr auto variable_names = std::to_array<std::string_view>({"h1_PT"sv, "h2_P"sv, "Lb_M"sv});
 
 constexpr std::size_t full_variable_count{variable_names.size()};
 constexpr std::size_t      variable_count{full_variable_count - 1};
@@ -132,6 +134,7 @@ auto create_data()
   return std::pair(data, static_cast<double>(real_count) / static_cast<double>(data.size()));
 }
 
+
 constexpr double logistic(const double val)
 {
   return 1.0 / (1.0 + std::exp(-val)) - 0.5;
@@ -148,6 +151,80 @@ constexpr double derivative_logistic_from_logistic(const double val)
 {
   return (0.5 + val) * (0.5 - val);
 }
+
+
+// takes an vector of 2D histograms; combines and empties them into a new one that is returned
+template<class T>
+constexpr const auto combine_histograms(std::vector<T>& histograms)
+{
+  T out{};
+
+  for (auto& histogram : histograms)
+    for (std::size_t bucket_no = 0; bucket_no < histogram.size(); ++bucket_no)
+      for (std::size_t target = 0; target <= histogram[bucket_no].size(); ++target)
+      {
+        out[bucket_no][target] += histogram[bucket_no][target];
+
+        histogram[bucket_no][target] = 0;
+      }
+
+  return out;
+}
+
+// prints a visualization of a histogram to the console
+template<class T>
+void print_histogram(const T& histogram)
+{
+  static_assert(std::tuple_size_v<typename T::value_type> == 2, "Internal dimension of histogram must statically be 2");
+
+  const auto max_bucket = [&]
+  {
+    const auto temp = std::ranges::max(histogram, {}, [](auto b){ return b[0] + b[1]; });
+
+    return temp[0] + temp[1];
+  }();
+
+  if (max_bucket)
+  {
+    for (const auto& bucket : histogram)
+    {
+      int i = 0;
+
+      for (; i < bucket[0] * 100 / max_bucket; i++)
+        fmt::print("0");
+
+      for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
+        fmt::print("1");
+
+      fmt::print(";\n");
+    }
+  }
+  else
+    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: max bucket of histogram has count of 0\n");
+}
+
+// prints a 3D network of connections
+template<class T>
+void print_connections(const T& connections)
+{
+  static_assert(floating<typename T::value_type::value_type::value_type>, "connections must be a 3D array of floating point type values");
+
+  static_assert(std::tuple_size_v<typename T::value_type> == std::tuple_size_v<typename T::value_type::value_type>, "connection layers must be square");
+
+  for (std::size_t layer = 0; layer < connections.size(); ++layer)
+  {
+    fmt::print("\nconnections layer {}:\n", layer);
+
+    for (const auto& weights : connections[layer])
+    {
+      for (const auto weight : weights)
+        fmt::print("{: f}  ", weight);
+
+      fmt::print("\n");
+    }
+  }
+}
+
 
 int main()
 {
@@ -193,84 +270,44 @@ int main()
 
     if (!excess_reps)
     {
-      for (std::size_t layer = 0; layer < depth - 1; ++layer)
+      if (!train)
+        print_histogram(combine_histograms(histograms));
+
+      char input;
+
+      while (true)
       {
-        fmt::print("\nconnections layer {}:\n", layer);
+        fmt::print("Input: Print current connections, perform a tEst, or tRain for an optional number of iterations? ");
 
-        for (std::size_t i = 0; i < variable_count; ++i)
+        std::cin >> input;
+
+        if (input == 'P')
         {
-          for (std::size_t j = 0; j < variable_count; ++j)
-            fmt::print("{: f}  ", connections[layer][i][j]);
+          print_connections(connections);
 
-          fmt::print("\n");
+          continue;
         }
-      }
-
-      std::array<std::array<double, 2>, bucket_count> main_histogram{};
-
-      for (auto& histogram : histograms)
-        for (std::size_t bucket_no = 0; bucket_no < bucket_count; ++bucket_no)
-          for (std::size_t target = 0; target <= 1; ++target)
-          {
-            main_histogram[bucket_no][target] += histogram[bucket_no][target];
-
-            histogram[bucket_no][target] = 0;
-          }
-
-      const auto max_bucket = [&]
-      {
-        const auto temp = std::ranges::max(main_histogram, {}, [](auto b){ return b[0] + b[1]; });
-
-        return temp[0] + temp[1];
-      }();
-
-      if (max_bucket)
-      {
-        for (const auto& bucket : main_histogram)
+        else if (input == 'E')
         {
-          int i = 0;
+          train = false;
 
-          for (; i < bucket[0] * 100 / max_bucket; i++)
-            fmt::print("0");
+          reps = 0;
+        }
+        else if (input == 'R')
+        {
+          train = true;
 
-          for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
-            fmt::print("1");
+          fmt::print("\nInput rep count: ");
+          std::cin >> excess_reps;
+        }
+        else
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "Invalid input\n");
 
-          fmt::print(";\n");
+          continue;
         }
 
-        for (auto& b : main_histogram)
-          for (auto& t : b)
-            t = 0;
-      }
-
-      {
-        char input;
-
-        fmt::print("For next iterations, tEst or tRain? ");
-
-        while (true)
-        {
-          std::cin >> input;
-
-          if (input == 'E')
-          {
-            train = false;
-
-            reps = 0;
-
-            break;
-          }
-          else if (input == 'R')
-          {
-            train = true;
-
-            fmt::print("\nInput rep count: ");
-            std::cin >> excess_reps;
-
-            break;
-          }
-        }
+        break;
       }
     }
 
@@ -283,17 +320,12 @@ int main()
 
   std::barrier sync_point(static_cast<std::ptrdiff_t>(thread_count), combine_updates);
 
-  //bool print_next = true;
-
-  std::vector<std::mutex> update_mutexes(thread_count);
-
   const std::size_t train_cutoff_index = (data.size() * 9) / 10;
 
-  auto run_iteration = [&](const auto thread_no)
+  auto iterate = [&](const auto thread_no)
   {
     while (true)
     {
-      //fmt::print("\none\n");
       while (true)
       {
         std::size_t index;
@@ -318,18 +350,6 @@ int main()
           if (index >= data.size())
             break;
         }
-
-        //const index, r;
-
-        //fmt::print("\ntwo\n");
-        /*auto index = [&]() -> std::size_t
-        {
-          if (train)
-            return movency::random::fast(movency::random::uniform_distribution(std::size_t{0}, train_cutoff_index - 1));
-          else 
-          {
-          }
-        }();*/
 
         std::array<std::array<double, variable_count>, depth> nodes;
 
@@ -388,78 +408,15 @@ int main()
               //errors[i][j] *= 4*derivative_logistic_from_logistic(nodes[i][j]);
             }
 
-          // begin updating of weights
+          // save updates to make to weights
 
           for (std::size_t i = 0; i < depth - 1; ++i)
             for (std::size_t j = 0; j < variable_count; ++j)
               for (std::size_t k = 0; k < variable_count; ++k)
                 updates[thread_no][i][j][k] += errors[i + 1][j] * nodes[i][k];
         }
-        else
-        {
+        else // record the score given to this event in a histogram
           histograms[thread_no][static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
-          //fmt::print("s{}, stb{}\n", score, score * bucket_count);
-        }
-
-        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
-        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.001)))
-        /*if (false)
-        {
-          if (data[index][full_variable_count] == print_next)
-          {
-            //fmt::print("                                                       ");
-            if (print_next)
-              fmt::print("\n");
-            else
-              fmt::print("       ");
-
-            fmt::print("score: {:>.7f}, {:>.7f}", score, target);
-
-            print_next = !print_next;
-          }
-        }*/
-
-        //if (movency::random::fast(movency::random::uniform_distribution<bool>(0.00001)))
-        /*if(false)
-        //if (!reps[thread_count]--)
-        {
-          fmt::print("\n\nscore: {}, {}\nnodes:\n", score, target);
-
-          for (std::size_t j = 0; j < variable_count; ++j)
-          {
-            for (std::size_t i = 0; i < depth; ++i)
-              fmt::print("{: f}  ", nodes[i][j]);
-
-            fmt::print("\n");
-          }
-
-          fmt::print("\n\nerrors:\n");
-
-          for (std::size_t j = 0; j < variable_count; ++j)
-          {
-            fmt::print(" unused    ");
-
-            for (std::size_t i = 1; i < depth; ++i)
-              fmt::print("{: f}  ", errors[i][j]);
-
-            fmt::print("\n");
-          }
-
-          fmt::print("\n");
-
-          for (std::size_t layer = 0; layer < depth - 1; ++layer)
-          {
-            fmt::print("\nconnections layer {}:\n", layer);
-
-            for (std::size_t i = 0; i < variable_count; ++i)
-            {
-              for (std::size_t j = 0; j < variable_count; ++j)
-                fmt::print("{: f}  ", connections[layer][i][j]);
-
-              fmt::print("\n");
-            }
-          }
-        }*/
       }
       sync_point.arrive_and_wait();
 
@@ -471,7 +428,7 @@ int main()
     std::vector<std::jthread> loop_threads{};
 
     for (std::uint32_t i = 0; i < thread_count; ++i)
-      loop_threads.emplace_back(run_iteration, i);
+      loop_threads.emplace_back(iterate, i);
 
     fmt::print("Spawned {} threads.\n", thread_count);
   }

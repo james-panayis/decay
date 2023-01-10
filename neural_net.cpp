@@ -50,70 +50,80 @@ constexpr std::size_t      variable_count{full_variable_count - 1};
 
 auto create_data()
 {
-  movency::root::file r_real{"../data/Lb2pKmm_mgUp_2018.root"};
-  movency::root::file r_simu{"../data/Lb2pKmm_sim_mgUp_2018.root"};
-
   std::vector<std::array<double, full_variable_count + 1>> data{};
 
-  for (std::size_t variable_index = 0; variable_index < full_variable_count; ++variable_index)
+  // reads desired variables from a file, marking them with the given score (ie background or signal)
+  auto read_from_file = [&](const movency::root::file& file, const bool score)
   {
-    auto variables{r_real.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
+    auto old_size = data.size();
 
-    fmt::print("reading {} real {} values\n", variables.size(), variable_names[variable_index]);
+    std::mutex resize_lock;
 
-    if (variables.size() > data.size())
+    std::atomic<std::size_t> global_variable_index{0};
+
+    auto read_real = [&]
     {
-      if (data.size() == 0)
-        data.resize(variables.size());
-      else
+      while (true)
       {
-        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: (real) {} {} {}\n", data.size(), variables.size(), variable_names[variable_index]);
+        const auto variable_index = global_variable_index.fetch_add(1, std::memory_order_relaxed);
 
-        std::exit(EXIT_FAILURE);
+        if (variable_index >= full_variable_count)
+          break;
+
+        auto variables{file.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
+
+        {
+          std::scoped_lock lock(resize_lock);
+
+          if (data.size() == old_size)
+            data.resize(old_size + variables.size());
+        }
+
+        if (old_size + variables.size() != data.size())
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: (real) {} {} {}\n", data.size(), variables.size(), variable_names[variable_index]);
+
+          std::exit(EXIT_FAILURE);
+        }
+
+        fmt::print("read {} {} {} values\n", variables.size(), score ? "simulated" : "real", variable_names[variable_index]);
+
+        for (std::size_t i = 0; i < variables.size(); ++i)
+        {
+          data[old_size + i][variable_index] = variables[i];
+        }
       }
-    }
+    };
 
-    for (std::size_t i = 0; i < variables.size(); ++i)
     {
-      data[i][variable_index] = variables[i];
-    }
-  }
+      std::vector<std::jthread> loop_threads{};
 
-  std::size_t real_count = data.size();
-
-  for (auto& record : data)
-    record[full_variable_count] = 0;
-
-  for (std::size_t variable_index = 0; variable_index < full_variable_count; ++variable_index)
-  {
-    auto variables{r_simu.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
-
-    fmt::print("reading {} simulated {} values\n", variables.size(), variable_names[variable_index]);
-
-    if (variables.size() + real_count > data.size())
-    {
-      if (data.size() == real_count)
-        data.resize(real_count + variables.size());
-      else
-      {
-        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: (simu) {} {} {} {}\n", data.size(), variables.size(), variable_names[variable_index], real_count);
-
-        std::exit(EXIT_FAILURE);
-      }
+      for (std::uint32_t i = 0; i < thread_count; ++i)
+        loop_threads.emplace_back(read_real);
     }
 
-    for (std::size_t i = 0; i < variables.size(); ++i)
-    {
-      data[real_count + i][variable_index] = variables[i];
-    }
-  }
+    for (std::size_t i = old_size; i < data.size(); ++i)
+      data[i][full_variable_count] = score;
+  };
 
-  for (std::size_t i = real_count; i < data.size(); ++i)
-    data[i][full_variable_count] = 1;
+  /*
+  read_from_file({    "../data/Lb2pKmm_mgUp_2016.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2016.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2016.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2016.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgUp_2017.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2017.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2017.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2017.root"}, 1);
+  */
+  read_from_file({    "../data/Lb2pKmm_mgUp_2018.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2018.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2018.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2018.root"}, 1);
 
   std::erase_if(data, [](const auto e){ return (std::abs(e[full_variable_count - 1] - 5619.60) < 300.0 ) != e[full_variable_count]; });
 
-  real_count = 0;
+  std::size_t real_count = 0;
 
   for (const auto& e : data)
     if (!e[full_variable_count])
@@ -121,6 +131,7 @@ auto create_data()
 
   std::ranges::shuffle(data, movency::random::prng_);
 
+  // normalize all variables
   for (std::size_t i = 0; i < variable_count; ++i)
   {
     const double div = std::ranges::max(data, {}, [=](const auto e){ return e[i]; })[i];

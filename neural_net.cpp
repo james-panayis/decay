@@ -182,36 +182,37 @@ constexpr const auto combine_histograms(std::vector<T>& histograms)
   return out;
 }
 
-// prints a visualization of a histogram to the console
+auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950); //make before creation of r to avert root segfault (magic!)
+
+// saves a histogram to a file
 template<class T>
-void print_histogram(const T& histogram)
+void save_histogram(const T& histogram, const std::string name)
 {
   static_assert(std::tuple_size_v<typename T::value_type> == 2, "Internal dimension of histogram must statically be 2");
 
-  const auto max_bucket = [&]
+  TMultiGraph mgraph{name.c_str(), name.c_str()};
+
+  auto signal_graph{std::make_unique<TGraph>()};
+  auto backgr_graph{std::make_unique<TGraph>()};
+
+  signal_graph->SetLineColor(kBlue);
+  backgr_graph->SetLineColor(kRed);
+
+  for (std::size_t i = 0; i < histogram.size(); ++i)
   {
-    const auto temp = std::ranges::max(histogram, {}, [](auto b){ return b[0] + b[1]; });
+    if (histogram[i][1])
+      signal_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][1]));
 
-    return temp[0] + temp[1];
-  }();
-
-  if (max_bucket)
-  {
-    for (const auto& bucket : histogram)
-    {
-      int i = 0;
-
-      for (; i < bucket[0] * 100 / max_bucket; i++)
-        fmt::print("0");
-
-      for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
-        fmt::print("1");
-
-      fmt::print(";\n");
-    }
+    if (histogram[i][0])
+      backgr_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][0]));
   }
-  else
-    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: max bucket of histogram has count of 0\n");
+
+  mgraph.Add(signal_graph.release());
+  mgraph.Add(backgr_graph.release());
+
+  mgraph.Draw("a");
+
+  canvas->SaveAs(fmt::format("cache/{}.png", name).c_str());
 }
 
 // prints a 3D network of connections
@@ -263,7 +264,7 @@ int main()
 
   std::vector<decltype(connections)> updates(thread_count);
 
-  constexpr std::size_t bucket_count{50};
+  constexpr std::size_t bucket_count{1000};
 
   std::vector<std::array<std::array<double, 2>, bucket_count>> histograms(thread_count);
 
@@ -282,7 +283,7 @@ int main()
     if (!excess_reps)
     {
       if (!train)
-        print_histogram(combine_histograms(histograms));
+        save_histogram(combine_histograms(histograms), "predictions");
 
       char input;
 

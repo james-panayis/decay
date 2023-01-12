@@ -11,10 +11,11 @@ from mva_plots import plot_roc_curve, makeHist, plot_2roc_curves, plot_3roc_curv
 # plt.rcParams['text.latex.preamble'] = [r'\usepackage{bm}']
 plt.rc("font", **{"family": "serif"})  # , "serif": ["Roman"]})
 plt.rc("text", usetex=True)
+import uproot
 
 
 ##########################################################################################
-#CREATING XGBOOST DATA AND MODELS
+#CREATING XGBOOST DATA, MODELS AND GRAPHS
 def MakeTestTrainData(name,
                       data,
                       year,
@@ -22,6 +23,7 @@ def MakeTestTrainData(name,
                       selection_files,
                       sig_selection,
                       bkg_selection,
+                      columns,
                       input_columns,
                       additional_columns,
                       retrain=False):
@@ -46,7 +48,7 @@ def MakeTestTrainData(name,
 
         sig_rdframe = ROOT.RDataFrame(sig_chain)
         sig_frame = pd.DataFrame(
-            data=sig_rdframe.Filter(sig_selection).AsNumpy(input_columns +
+            data=sig_rdframe.Filter(sig_selection).AsNumpy(columns +
                                                            additional_columns))
 
         for selection in selection_files:
@@ -57,7 +59,7 @@ def MakeTestTrainData(name,
 
         bkg_rdframe = ROOT.RDataFrame(bkg_chain)
         bkg_frame = pd.DataFrame(
-            data=bkg_rdframe.Filter(bkg_selection).AsNumpy(input_columns +
+            data=bkg_rdframe.Filter(bkg_selection).AsNumpy(columns +
                                                            additional_columns))
 
         print("ADDED SELECTION FILES")
@@ -66,28 +68,23 @@ def MakeTestTrainData(name,
             np.ones(shape=sig_frame.shape[0]), columns=["label"])
         bkg_label = pd.DataFrame(
             np.zeros(shape=bkg_frame.shape[0]), columns=["label"])
-        #sig_weights = pd.DataFrame(np.ones(shape=sig_frame.shape[0]))
-        #bkg_weights = pd.DataFrame(np.ones(shape=bkg_frame.shape[0]))
 
-        train_data = pd.concat(
-            [sig_frame[input_columns], bkg_frame[input_columns]],
-            sort=False,
-            ignore_index=True)
         train_label = pd.concat([sig_label, bkg_label],
                                 sort=False,
                                 ignore_index=True)
-        #train_weights = pd.concat([sig_weights, bkg_weights],
-        #                          sort=False,
-        #                          ignore_index=True)
+
         train_data = pd.concat([
-            sig_frame[input_columns + additional_columns],
-            bkg_frame[input_columns + additional_columns]
+            sig_frame[columns + additional_columns],
+            bkg_frame[columns + additional_columns]
         ],
                                sort=False,
                                ignore_index=True)
 
         train_data["label"] = train_label["label"]
-        #train_data["mva_mcweight_nTracks_B_PT"] = train_weights
+
+        train_data["max(OWNPV_Y)"] = train_data[[
+            "h1_OWNPV_Y", "h2_OWNPV_Y", "mu1_OWNPV_Y", "mu2_OWNPV_Y"
+        ]].max(axis=1)
 
         X_train, X_test, y_train, y_test = split_data(train_data, train_label)
 
@@ -117,8 +114,8 @@ def MakeTestTrainData(name,
         print("RETRIEVING...")
 
         X_test, X_train = load_test_train(
-            f"../cache/{data}_{year}_{polarity}_Xtrain.root",
-            f"../cache/{data}_{year}_{polarity}_Xtest.root", "tree", "tree")
+            f"../cache/TestTrainData/{name}_Xtrain.root",
+            f"../cache/TestTrainData/{name}_Xtest.root", "tree", "tree")
 
         y_test = X_test[["label"]]
         y_train = X_train[["label"]]
@@ -128,9 +125,42 @@ def MakeTestTrainData(name,
 
 def CreateModel(model_name, X_train, X_test, y_train, y_test, input_columns):
     model = train_xgb_classifier(X_train[input_columns], X_test[input_columns],
-                                 y_train, y_test, None, None,
+                                 y_train, y_test,
                                  f"../cache/models/{model_name}")
     return model
+
+
+def MakeROC(plot_name, Xtest, Xtrain):
+    from_cache = "../cache/"
+
+    #Xtest1, Xtrain1 = load_test_train(
+    #    f"{from_cache}{name}_test.root",
+    #    f"{from_cache}{name}_train.root", "tree", "tree")
+
+    plot_2roc_curves(Xtest.loc[Xtest.label == 1], Xtest.loc[Xtest.label == 0],
+                     Xtrain.loc[Xtrain.label == 1],
+                     Xtrain.loc[Xtrain.label == 0], "xgb_output", "xgb_output",
+                     "Test", "Train", "", plot_name)
+
+
+def MakeHist(plot_name):
+    file_test = ROOT.TFile(f"../cache/XGB_data/XGB_{plot_name}_test.root")
+    tree_test = file_test.Get("tree")
+
+    file_train = ROOT.TFile(f"../cache/XGB_data/XGB_{plot_name}_train.root")
+    tree_train = file_train.Get("tree")
+
+    makeHist(f"{plot_name}.pdf", tree_test, tree_train, "xgb_output", 25, 0, 1,
+             "1")
+
+
+def MakeCorr(plot_name, Xtest, Xtrain, input_columns, more_columns):
+
+    draw_correlation(Xtest.loc[Xtest.label == 1][input_columns + more_columns],
+                     'Correlations', f'{plot_name}_input_correlations_sig.pdf')
+
+    draw_correlation(Xtest.loc[Xtest.label == 0][input_columns + more_columns],
+                     'Correlations', f'{plot_name}_input_correlations_bkg.pdf')
 
 
 ##########################################################################################
@@ -222,8 +252,6 @@ def hyp_train_xgb_classifier(X_train,
                              X_test,
                              y_train,
                              y_test,
-                             sample_weight=None,
-                             sample_weight_eval_set=None,
                              name=None,
                              max_depth=3,
                              eta=0.8,
@@ -286,14 +314,12 @@ def HypervariableTest(filename, MAX_DEPTH, ETA, GAMMA, SUBSAMPLE,
         for eta in ETA:
             for gamma in GAMMA:
                 for sub in SUBSAMPLE:
-
+                    print(f"Depth: {md}, Eta: {eta}, Sub: {sub}")
                     plot_name = f"TO_DELETE"
                     name = f"TEMP"
                     model = hyp_train_xgb_classifier(
                         X_train[input_columns], X_test[input_columns], y_train,
-                        y_test, X_train["mva_mcweight_nTracks_B_PT"],
-                        X_test["mva_mcweight_nTracks_B_PT"], f"{name}_model",
-                        md, eta, gamma, sub)
+                        y_test, f"{name}_model", md, eta, gamma, sub)
 
                     predict_and_save(model, X_test, X_train, input_columns,
                                      "xgb_output", "xgb_output",
@@ -371,13 +397,11 @@ def InputTesting(filename, input_columns, BEST_ROC, test_name, train_name):
             if x != i:
                 new_columns.append(columns_to_loop[x])
             x += 1
-
+        print(f"{i}/{len(columns_to_loop)}")
         plot_name = f"TEMP"
         name = f"TEMP"
-        model = train_xgb_classifier(
-            X_train[new_columns], X_test[new_columns], y_train, y_test,
-            X_train["mva_mcweight_nTracks_B_PT"],
-            X_test["mva_mcweight_nTracks_B_PT"], f"{name}_model")
+        model = train_xgb_classifier(X_train[new_columns], X_test[new_columns],
+                                     y_train, y_test, f"{name}_model")
 
         predict_and_save(model, X_test, X_train, new_columns, "xgb_output",
                          "xgb_output", f"{name}_test", f"{name}_train")
@@ -425,3 +449,105 @@ def InputTesting(filename, input_columns, BEST_ROC, test_name, train_name):
 
 
 ######################################################################################
+
+
+def TrainXGBs(Name, Years, polarities, input_columns, additional_columns,
+              bkg_selection, sig_selection, selection_files):
+    """
+    Returns a XGBoost classifier model which is saved in the xgb_models file
+    Also saves a snapshot of the test and train data after a prediction and saves this in a cache file
+    @param do_years - list of years to iterate over
+    @param version - name of version in string format 
+    """
+
+    bkg_dataframe = list()
+    bkg_events = 0
+
+    sig_dataframe = list()
+
+    final_sig_dataframe = list()
+    sig_events = 0
+
+    for year in Years:
+        for polarity in polarities:
+
+            sig_sample_name = f"Lb2pKmm_sim_mg{polarity}_{year}"
+            bkg_sample_name = f"Lb2pKmm_mg{polarity}_{year}"
+
+            sig_file_name = cd.samples[sig_sample_name]["ntuples"]
+            bkg_file_name = cd.samples[bkg_sample_name]["ntuples"]
+
+            sig_chain = ROOT.TChain("tree")
+            sig_chain.Add(sig_file_name)
+
+            bkg_chain = ROOT.TChain("Lb_Tuple/DecayTree")
+            bkg_chain.Add(bkg_file_name)
+
+            for selection in selection_files:
+                sig_friend_chain = ROOT.TChain('tree')
+                sig_sel_name = f"../selections/{selection}_{sig_sample_name}.root"
+                sig_friend_chain.Add(sig_sel_name)
+                sig_chain.AddFriend(sig_friend_chain)
+
+            sig_rdframe = ROOT.RDataFrame(sig_chain)
+            sig_frame = pd.DataFrame(
+                data=sig_rdframe.Filter(sig_selection).AsNumpy(
+                    input_columns + additional_columns))
+
+            for selection in selection_files:
+                bkg_friend_chain = ROOT.TChain('tree')
+                bkg_sel_name = f"../selections/{selection}_{bkg_sample_name}.root"
+                bkg_friend_chain.Add(bkg_sel_name)
+                bkg_chain.AddFriend(bkg_friend_chain)
+
+            bkg_rdframe = ROOT.RDataFrame(bkg_chain)
+            bkg_frame = pd.DataFrame(
+                data=bkg_rdframe.Filter(bkg_selection).AsNumpy(
+                    input_columns + additional_columns))
+
+            bkg_frame["year"] = year
+            if polarity == "Up":
+                bkg_frame["polarity"] = 1
+            else:
+                bkg_frame["polarity"] = 0
+            bkg_dataframe.append(bkg_frame)
+
+            sig_frame["year"] = year
+            if polarity == "Up":
+                sig_frame["polarity"] = 1
+            else:
+                sig_frame["polarity"] = 0
+            sig_dataframe.append(sig_frame)
+
+            print(f"ADDED {year} {polarity}")
+
+    bkg_dataframe = pd.concat(bkg_dataframe, sort=False, ignore_index=True)
+    sig_dataframe = pd.concat(sig_dataframe, sort=False, ignore_index=True)
+
+    print("Starting Training")
+    print(f"Preselected: {bkg_events} = {bkg_dataframe.shape[0]}")
+    print(f"Preselected: {sig_events} = {sig_dataframe.shape[0]}")
+
+    sig_dataframe["label"] = 1
+    bkg_dataframe["label"] = 0
+
+    train_data = pd.concat([sig_dataframe, bkg_dataframe],
+                           sort=False,
+                           ignore_index=True)
+
+    X_train, X_test, y_train, y_test = split_data(train_data,
+                                                  train_data["label"])
+
+    #make the model CHANGE THIS! MAYBE JUST RETURN X and Y here
+    #    model = train_xgb_classifier(
+    #        X_train[input_variables], X_test[input_variables], y_train, y_test,
+    #        X_train["mcweightvar"], X_test["mcweightvar"], f"{Name}")
+    #
+    #    print("MODEL CREATED")
+    #
+    #    predict_and_save(model, X_test, X_train, input_variables, 'xgb_output',
+    #                     'xgb_output', f"{Name}_test", f"{Name}_train")
+    #    print(f"File saved: cache/xgb_samples/{year}_test")
+    #    print(f"File saved: cache/xgb_samples/{year}_train")
+    #
+    return X_train, X_test, y_train, y_test

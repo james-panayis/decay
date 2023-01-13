@@ -3,6 +3,7 @@
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TMultiGraph.h"
+#include "TLatex.h"
 
 #include "timeblit/random.hpp"
 
@@ -160,7 +161,7 @@ constexpr double derivative_logistic_from_logistic(const double val)
 }
 
 
-auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950); //make before creation of r to avert root segfault (magic!)
+auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900); //make before creation of r to avert root segfault (magic!)
 
 
 // saves a histogram to a file
@@ -234,26 +235,46 @@ void create_ROC_curve(const std::vector<T>& predictions, const std::string name,
     else
       background_predictions.emplace_back(predictions[i]);
 
-  const double orig_signal_count{signal_predictions.size()};
-  const double orig_background_count{background_predictions.size()};
+  const auto orig_signal_count{static_cast<double>(signal_predictions.size())};
+  const auto orig_background_count{static_cast<double>(background_predictions.size())};
 
   constexpr std::size_t point_count{10000};
 
   TMultiGraph mgraph{name.c_str(), name.c_str()};
 
-  auto graph{std::make_unique<TGraph>()};
-
-  for (std::size_t i = 0; i < point_count; ++i)
   {
-    const double cut = static_cast<double>(i) / point_count;
+    auto graph{std::make_unique<TGraph>()};
 
-    std::erase_if(signal_predictions, [=](double v){ return v < cut; });
-    std::erase_if(background_predictions, [=](double v){ return v < cut; });
+    double area{0};
 
-    graph->AddPoint(background_predictions.size() / orig_background_count, signal_predictions.size() / orig_signal_count);
+    double prev_signal    {1};
+    double prev_background{1};
+
+    for (std::size_t i = 1; i < point_count + 1; ++i)
+    {
+      const double cut = static_cast<double>(i) / point_count;
+
+      std::erase_if(signal_predictions,     [=](double v){ return v < cut; });
+      std::erase_if(background_predictions, [=](double v){ return v < cut; });
+
+      const double next_signal    {static_cast<double>(    signal_predictions.size()) /     orig_signal_count};
+      const double next_background{static_cast<double>(background_predictions.size()) / orig_background_count};
+
+      area += (prev_background - next_background) * (next_signal + prev_signal) / 2;
+
+      prev_signal = next_signal;
+      prev_background = next_background;
+
+      graph->AddPoint(next_background, next_signal);
+    }
+
+    {
+      auto latex = std::make_unique<TLatex>(0.5, 0.5, (std::string{"AUC = "} + std::to_string(area)).c_str());
+      graph->GetListOfFunctions()->Add(latex.release());
+    }
+
+    mgraph.Add(graph.release());
   }
-
-  mgraph.Add(graph.release());
 
   mgraph.Draw("a");
 

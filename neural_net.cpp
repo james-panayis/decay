@@ -164,54 +164,48 @@ constexpr double derivative_logistic_from_logistic(const double val)
 }
 
 
-// takes an vector of 2D histograms; combines and empties them into a new one that is returned
-template<class T>
-constexpr const auto combine_histograms(std::vector<T>& histograms)
+auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950); //make before creation of r to avert root segfault (magic!)
+
+// saves a histogram to a file
+template<floating T>
+void create_histogram(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const double fraction_background)
 {
-  T out{};
+  constexpr std::size_t bucket_count{1000};
 
-  for (auto& histogram : histograms)
-    for (std::size_t bucket_no = 0; bucket_no < histogram.size(); ++bucket_no)
-      for (std::size_t target = 0; target <= histogram[bucket_no].size(); ++target)
-      {
-        out[bucket_no][target] += histogram[bucket_no][target];
+  std::array<std::array<double, 2>, bucket_count> histogram{};
 
-        histogram[bucket_no][target] = 0;
-      }
-
-  return out;
-}
-
-// prints a visualization of a histogram to the console
-template<class T>
-void print_histogram(const T& histogram)
-{
-  static_assert(std::tuple_size_v<typename T::value_type> == 2, "Internal dimension of histogram must statically be 2");
-
-  const auto max_bucket = [&]
+  for (std::size_t i = 0; i < predictions.size(); ++i)
   {
-    const auto temp = std::ranges::max(histogram, {}, [](auto b){ return b[0] + b[1]; });
+    const auto target = data[i][full_variable_count];
 
-    return temp[0] + temp[1];
-  }();
+    const auto bias = target ? fraction_background : 1 - fraction_background;
 
-  if (max_bucket)
-  {
-    for (const auto& bucket : histogram)
-    {
-      int i = 0;
-
-      for (; i < bucket[0] * 100 / max_bucket; i++)
-        fmt::print("0");
-
-      for (; i < (bucket[0] + bucket[1]) * 100 / max_bucket; i++)
-        fmt::print("1");
-
-      fmt::print(";\n");
-    }
+    histogram[static_cast<std::size_t>(predictions[i] * bucket_count)][static_cast<std::size_t>(target)] += bias;
   }
-  else
-    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: max bucket of histogram has count of 0\n");
+
+  TMultiGraph mgraph{name.c_str(), name.c_str()};
+
+  auto signal_graph{std::make_unique<TGraph>()};
+  auto backgr_graph{std::make_unique<TGraph>()};
+
+  signal_graph->SetLineColor(kBlue);
+  backgr_graph->SetLineColor(kRed);
+
+  for (std::size_t i = 0; i < histogram.size(); ++i)
+  {
+    if (histogram[i][1])
+      signal_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][1]));
+
+    if (histogram[i][0])
+      backgr_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][0]));
+  }
+
+  mgraph.Add(signal_graph.release());
+  mgraph.Add(backgr_graph.release());
+
+  mgraph.Draw("a");
+
+  canvas->SaveAs(fmt::format("cache/{}.png", name).c_str());
 }
 
 // prints a 3D network of connections
@@ -263,9 +257,9 @@ int main()
 
   std::vector<decltype(connections)> updates(thread_count);
 
-  constexpr std::size_t bucket_count{50};
+  const std::size_t train_cutoff_index = (data.size() * 9) / 10;
 
-  std::vector<std::array<std::array<double, 2>, bucket_count>> histograms(thread_count);
+  std::vector<double> predictions(data.size() - train_cutoff_index);
 
   std::atomic<std::ptrdiff_t> reps{0};
 
@@ -282,7 +276,7 @@ int main()
     if (!excess_reps)
     {
       if (!train)
-        print_histogram(combine_histograms(histograms));
+        create_histogram(predictions, "predictions", std::span(data).subspan(train_cutoff_index), fraction_background);
 
       char input;
 
@@ -330,8 +324,6 @@ int main()
   };
 
   std::barrier sync_point(static_cast<std::ptrdiff_t>(thread_count), combine_updates);
-
-  const std::size_t train_cutoff_index = (data.size() * 9) / 10;
 
   auto iterate = [&](const auto thread_no)
   {
@@ -392,13 +384,13 @@ int main()
 
         score = logistic(score) + 0.5;
 
-        const auto target = data[index][full_variable_count];
-
-        const auto bias = target ? fraction_background : fraction_signal;
-
         if (train)
         {
           // begin backpropagation of errors
+
+          const auto target = data[index][full_variable_count];
+
+          const auto bias = target ? fraction_background : fraction_signal;
 
           const auto error = (target - score) * bias * derivative_logistic_from_logistic(score - 0.5);
 
@@ -426,9 +418,10 @@ int main()
               for (std::size_t k = 0; k < variable_count; ++k)
                 updates[thread_no][i][j][k] += errors[i + 1][j] * nodes[i][k];
         }
-        else // record the score given to this event in a histogram
-          histograms[thread_no][static_cast<std::size_t>(score * bucket_count)][static_cast<std::size_t>(target)] += bias;
+        else // record the score given to this event
+          predictions[index - train_cutoff_index] = score;
       }
+
       sync_point.arrive_and_wait();
 
       updates[thread_no] = {};

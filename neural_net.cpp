@@ -123,11 +123,7 @@ auto create_data()
 
   std::erase_if(data, [](const auto e){ return (std::abs(e[full_variable_count - 1] - 5619.60) < 300.0 ) != e[full_variable_count]; });
 
-  std::size_t real_count = 0;
-
-  for (const auto& e : data)
-    if (!e[full_variable_count])
-      ++real_count;
+  const auto real_count = static_cast<std::size_t>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; }));
 
   std::ranges::shuffle(data, movency::random::prng_);
 
@@ -166,10 +162,20 @@ constexpr double derivative_logistic_from_logistic(const double val)
 
 auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 1500, 950); //make before creation of r to avert root segfault (magic!)
 
+
 // saves a histogram to a file
 template<floating T>
-void create_histogram(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const double fraction_background)
+void create_histogram(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data)
 {
+  if (predictions.size() != data.size())
+  {
+    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of precictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
+
+    std::exit(1);
+  }
+
+  const double fraction_background = static_cast<double>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; })) / static_cast<double>(data.size());
+
   constexpr std::size_t bucket_count{1000};
 
   std::array<std::array<double, 2>, bucket_count> histogram{};
@@ -202,6 +208,52 @@ void create_histogram(const std::vector<T>& predictions, const std::string name,
 
   mgraph.Add(signal_graph.release());
   mgraph.Add(backgr_graph.release());
+
+  mgraph.Draw("a");
+
+  canvas->SaveAs(fmt::format("cache/{}.png", name).c_str());
+}
+
+// saves a ROC curve to a file
+template<floating T>
+void create_ROC_curve(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data)
+{
+  if (predictions.size() != data.size())
+  {
+    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of precictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
+
+    std::exit(1);
+  }
+
+  std::vector<double> background_predictions;
+  std::vector<double> signal_predictions;
+
+  for (std::size_t i = 0; i < data.size(); ++i)
+    if (data[i][full_variable_count])
+      signal_predictions.emplace_back(predictions[i]);
+    else
+      background_predictions.emplace_back(predictions[i]);
+
+  const double orig_signal_count{signal_predictions.size()};
+  const double orig_background_count{background_predictions.size()};
+
+  constexpr std::size_t point_count{10000};
+
+  TMultiGraph mgraph{name.c_str(), name.c_str()};
+
+  auto graph{std::make_unique<TGraph>()};
+
+  for (std::size_t i = 0; i < point_count; ++i)
+  {
+    const double cut = static_cast<double>(i) / point_count;
+
+    std::erase_if(signal_predictions, [=](double v){ return v < cut; });
+    std::erase_if(background_predictions, [=](double v){ return v < cut; });
+
+    graph->AddPoint(background_predictions.size() / orig_background_count, signal_predictions.size() / orig_signal_count);
+  }
+
+  mgraph.Add(graph.release());
 
   mgraph.Draw("a");
 
@@ -276,7 +328,11 @@ int main()
     if (!excess_reps)
     {
       if (!train)
-        create_histogram(predictions, "predictions", std::span(data).subspan(train_cutoff_index), fraction_background);
+      {
+        create_histogram(predictions, "log_predictions", std::span(data).subspan(train_cutoff_index));
+
+        create_ROC_curve(predictions, "ROC_curve", std::span(data).subspan(train_cutoff_index));
+      }
 
       char input;
 

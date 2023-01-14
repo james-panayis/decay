@@ -710,6 +710,12 @@ namespace root {
     }
 
 
+    std::string get_path() const noexcept
+    {
+      return path_;
+    }
+
+
     void close() noexcept
     {
       if (fd_)

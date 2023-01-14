@@ -4,6 +4,7 @@
 #include "TGraph.h"
 #include "TMultiGraph.h"
 #include "TLatex.h"
+#include "TAxis.h"
 
 #include "timeblit/random.hpp"
 
@@ -39,7 +40,28 @@ template<std::size_t P>
 
 
 const std::size_t thread_count{std::max(1u, std::thread::hardware_concurrency() - 1)};
-//const std::size_t thread_count{4};
+//constexpr std::size_t thread_count{4};
+
+// create a thread for each core and run the given function on each
+// the function must take 0 arguments, or a single std::uint32_t,
+// in which case the thread number [0, thread_count - 1]  will be passed
+void do_threaded(auto func)
+{
+  std::vector<std::jthread> loop_threads{};
+
+  loop_threads.reserve(thread_count);
+
+  for (std::uint32_t i = 0; i < thread_count; ++i)
+    if constexpr (std::invocable<decltype(func)>)
+      loop_threads.emplace_back(func);
+    else
+    {
+      static_assert(std::invocable<decltype(func), std::uint32_t>, "test_repeat must be passed a function callable with 0 or 1 arguments");
+
+      loop_threads.emplace_back(func, i);
+    }
+}
+
 
 using namespace std::literals;
 
@@ -53,16 +75,18 @@ auto create_data()
 {
   std::vector<std::array<double, full_variable_count + 1>> data{};
 
-  // reads desired variables from a file, marking them with the given score (ie background or signal)
+  // reads desired variables from a file, appending them to data, marking them with the given score (ie background or signal)
   auto read_from_file = [&](const movency::root::file& file, const bool score)
   {
+    fmt::print("reading from file {}\n", file.get_path());
+
     auto old_size = data.size();
 
     std::mutex resize_lock;
 
     std::atomic<std::size_t> global_variable_index{0};
 
-    auto read_real = [&]
+    auto read_next_variable = [&]
     {
       while (true)
       {
@@ -82,7 +106,7 @@ auto create_data()
 
         if (old_size + variables.size() != data.size())
         {
-          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: (real) {} {} {}\n", data.size(), variables.size(), variable_names[variable_index]);
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: Inconsistent variable counts in file {}. Previous count: {}. Variable count: {}. Expected total: {}. Variable: {}\n", file.get_path(), old_size, variables.size(), data.size(), variable_names[variable_index]);
 
           std::exit(EXIT_FAILURE);
         }
@@ -96,15 +120,12 @@ auto create_data()
       }
     };
 
-    {
-      std::vector<std::jthread> loop_threads{};
-
-      for (std::uint32_t i = 0; i < thread_count; ++i)
-        loop_threads.emplace_back(read_real);
-    }
+    do_threaded(read_next_variable);
 
     for (std::size_t i = old_size; i < data.size(); ++i)
       data[i][full_variable_count] = score;
+
+    fmt::print("\n");
   };
 
   /*
@@ -190,7 +211,7 @@ void create_histogram(const std::vector<T>& predictions, const std::string name,
     histogram[static_cast<std::size_t>(predictions[i] * bucket_count)][static_cast<std::size_t>(target)] += bias;
   }
 
-  TMultiGraph mgraph{name.c_str(), name.c_str()};
+  TMultiGraph mgraph{name.c_str(), (name+";score;log(count)").c_str()};
 
   auto signal_graph{std::make_unique<TGraph>()};
   auto backgr_graph{std::make_unique<TGraph>()};
@@ -226,8 +247,8 @@ void create_ROC_curve(const std::vector<T>& predictions, const std::string name,
     std::exit(1);
   }
 
-  std::vector<double> background_predictions;
-  std::vector<double> signal_predictions;
+  std::vector<T> background_predictions;
+  std::vector<T> signal_predictions;
 
   for (std::size_t i = 0; i < data.size(); ++i)
     if (data[i][full_variable_count])
@@ -240,7 +261,7 @@ void create_ROC_curve(const std::vector<T>& predictions, const std::string name,
 
   constexpr std::size_t point_count{10000};
 
-  TMultiGraph mgraph{name.c_str(), name.c_str()};
+  TMultiGraph mgraph{name.c_str(), (name+";False positive rate;True positive rate").c_str()};
 
   {
     auto graph{std::make_unique<TGraph>()};
@@ -254,8 +275,8 @@ void create_ROC_curve(const std::vector<T>& predictions, const std::string name,
     {
       const double cut = static_cast<double>(i) / point_count;
 
-      std::erase_if(signal_predictions,     [=](double v){ return v < cut; });
-      std::erase_if(background_predictions, [=](double v){ return v < cut; });
+      std::erase_if(signal_predictions,     [=](T v){ return v < cut; });
+      std::erase_if(background_predictions, [=](T v){ return v < cut; });
 
       const double next_signal    {static_cast<double>(    signal_predictions.size()) /     orig_signal_count};
       const double next_background{static_cast<double>(background_predictions.size()) / orig_background_count};
@@ -505,14 +526,7 @@ int main()
     }
   };
 
-  {
-    std::vector<std::jthread> loop_threads{};
-
-    for (std::uint32_t i = 0; i < thread_count; ++i)
-      loop_threads.emplace_back(iterate, i);
-
-    fmt::print("Spawned {} threads.\n", thread_count);
-  }
+  do_threaded(iterate);
 
   fmt::print("done\n");
 

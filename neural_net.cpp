@@ -51,15 +51,40 @@ void do_threaded(auto func)
 
   loop_threads.reserve(thread_count);
 
-  for (std::uint32_t i = 0; i < thread_count; ++i)
+  for (std::uint32_t thread_index = 0; thread_index < thread_count; ++thread_index)
     if constexpr (std::invocable<decltype(func)>)
       loop_threads.emplace_back(func);
     else
     {
       static_assert(std::invocable<decltype(func), std::uint32_t>, "test_repeat must be passed a function callable with 0 or 1 arguments");
 
-      loop_threads.emplace_back(func, i);
+      loop_threads.emplace_back(func, thread_index);
     }
+}
+
+// call the given function on all values in the range [0, n - 1]
+// uses thread_count threads
+// provides no guarantees on execution order or which thread functions are executed on
+void loop_threaded(auto func, const std::size_t n)
+{
+  static_assert(std::invocable<decltype(func), std::size_t>, "test_repeat must be passed a function callable with 1 arguments");
+
+  std::atomic<std::size_t> global_index{0};
+
+  auto do_next_index = [&]()
+  {
+    while (true)
+    {
+      const auto index = global_index.fetch_add(1, std::memory_order_relaxed);
+
+      if (index >= n)
+        break;
+
+      func(index);
+    }
+  };
+
+  do_threaded(do_next_index);
 }
 
 
@@ -84,43 +109,34 @@ auto create_data()
 
     std::mutex resize_lock;
 
-    std::atomic<std::size_t> global_variable_index{0};
-
-    auto read_next_variable = [&]
+    // reads in a single variable from the file to data, thread-safely enlarging data
+    auto read_variable = [&](std::size_t variable_index)
     {
-      while (true)
+      auto variables{file.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
+
       {
-        const auto variable_index = global_variable_index.fetch_add(1, std::memory_order_relaxed);
+        std::scoped_lock lock(resize_lock);
 
-        if (variable_index >= full_variable_count)
-          break;
+        if (data.size() == old_size)
+          data.resize(old_size + variables.size());
+      }
 
-        auto variables{file.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
+      if (old_size + variables.size() != data.size())
+      {
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: Inconsistent variable counts in file {}. Previous count: {}. Variable count: {}. Expected total: {}. Variable: {}\n", file.get_path(), old_size, variables.size(), data.size(), variable_names[variable_index]);
 
-        {
-          std::scoped_lock lock(resize_lock);
+        std::exit(EXIT_FAILURE);
+      }
 
-          if (data.size() == old_size)
-            data.resize(old_size + variables.size());
-        }
+      fmt::print("read {} {} {} values\n", variables.size(), score ? "simulated" : "real", variable_names[variable_index]);
 
-        if (old_size + variables.size() != data.size())
-        {
-          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: Inconsistent variable counts in file {}. Previous count: {}. Variable count: {}. Expected total: {}. Variable: {}\n", file.get_path(), old_size, variables.size(), data.size(), variable_names[variable_index]);
-
-          std::exit(EXIT_FAILURE);
-        }
-
-        fmt::print("read {} {} {} values\n", variables.size(), score ? "simulated" : "real", variable_names[variable_index]);
-
-        for (std::size_t i = 0; i < variables.size(); ++i)
-        {
-          data[old_size + i][variable_index] = variables[i];
-        }
+      for (std::size_t i = 0; i < variables.size(); ++i)
+      {
+        data[old_size + i][variable_index] = variables[i];
       }
     };
 
-    do_threaded(read_next_variable);
+    loop_threaded(read_variable, full_variable_count);
 
     for (std::size_t i = old_size; i < data.size(); ++i)
       data[i][full_variable_count] = score;
@@ -149,14 +165,16 @@ auto create_data()
 
   std::ranges::shuffle(data, movency::random::prng_);
 
-  // normalize all variables
-  for (std::size_t i = 0; i < variable_count; ++i)
+  // normalizes a variable
+  auto normalize_variable = [&](std::size_t variable_index)
   {
-    const double div = std::ranges::max(data, {}, [=](const auto e){ return e[i]; })[i];
+    const double div = std::ranges::max(data, {}, [=](const auto e){ return e[variable_index]; })[variable_index];
 
     for (auto& e : data)
-      e[i] /= div;
-  }
+      e[variable_index] /= div;
+  };
+
+  loop_threaded(normalize_variable, variable_count);
 
   fmt::print("created data. {} real and {} simulated events\n", real_count, data.size() - real_count);
 

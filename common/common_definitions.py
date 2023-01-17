@@ -45,49 +45,51 @@ pimumu_B_M_sigregion = " && abs(B_M - {0}) < {1} ".format(
 
 fullLb_M_range = " && Lb_M > !!!!! && Lb_M < !!!!! "
 
-training_sideband = "Lb_M > 4750 && !(Lb_M > 5250 && Lb_M < 5725) && abs(dimuon_M - 3096.9) > 100 && abs(dimuon_M - 3686.097) > 100"
+training_sideband = "Lb_M > 4750 && !(Lb_M > 5350 && Lb_M < 5850) && abs(Jpsi_M - 3096.9) > 100 && abs(Jpsi_M - 3686.097) > 100 && abs(Jpsi_M - 1020)>30"
 
 
+paper_training_sideband = "Lb_M > 5800 && abs(Jpsi_M - 3096.9) > 100 && abs(Jpsi_M - 3686.097) > 100 && abs(Jpsi_M - 1020)>30"
 ################ LIST OF ALL SAMPLES WE WILL USE ######################
 
-inputDirectory = '../../../../../../work/c/cawhite/public/data/'
+#inputDirectory = '../../../../../../work/c/cawhite/public/data/'
+inputDirectory = '../../data/'
 
 samples = dict()
 
-#samples["Lb2pKmm_mgDn_2016"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2016.root",
-#    "tree": "Lb_Tuple/DecayTree"
-#}
+samples["Lb2pKmm_mgDn_2016"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2016.root",
+    "tree": "Lb_Tuple/DecayTree"
+}
 
-#samples["Lb2pKmm_mgDn_2017"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2017.root",
-#    "tree": (TTree*)_file0->Get("Lb_Tuple/DecayTree")
-#}
-#
-#samples["Lb2pKmm_mgDn_2018"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2018.root",
-#    "tree": (TTree*)_file0->Get("Lb_Tuple/DecayTree")
-#}
-#
+samples["Lb2pKmm_mgDn_2017"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2017.root",
+    "tree": "Lb_Tuple/DecayTree"
+}
+
+samples["Lb2pKmm_mgDn_2018"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_mgDn_2018.root",
+    "tree": "Lb_Tuple/DecayTree"
+}
+
 samples["Lb2pKmm_mgUp_2016"] = {
     "ntuples": inputDirectory + "Lb2pKmm_mgUp_2016.root",
     "tree": "Lb_Tuple/DecayTree"
 }
-#
-#samples["Lb2pKmm_mgUp_2017"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_mgUp_2017.root",
-#    "tree": (TTree*)_file0->Get("Lb_Tuple/DecayTree")
-#}
-#
-#samples["Lb2pKmm_mgUp_2018"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_mgUp_2018.root",
-#    "tree": (TTree*)_file0->Get("Lb_Tuple/DecayTree")
-#}
-#
-#samples["Lb2pKmm_sim_mgDn_2016"] = {
-#    "ntuples": inputDirectory + "Lb2pKmm_sim_mgDn_2016.root",
-#    "tree": "tree"
-#}
+
+samples["Lb2pKmm_mgUp_2017"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_mgUp_2017.root",
+    "tree": "Lb_Tuple/DecayTree"
+}
+
+samples["Lb2pKmm_mgUp_2018"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_mgUp_2018.root",
+    "tree": "Lb_Tuple/DecayTree"
+}
+
+samples["Lb2pKmm_sim_mgDn_2016"] = {
+    "ntuples": inputDirectory + "Lb2pKmm_sim_mgDn_2016.root",
+    "tree": "tree"
+}
 
 samples["Lb2pKmm_sim_mgDn_2017"] = {
     "ntuples": inputDirectory + "Lb2pKmm_sim_mgDn_2017.root",
@@ -117,8 +119,6 @@ samples["Lb2pKmm_sim_mgUp_2018"] = {
 ###################################################################
 
 
-
-
 dimuon_M_xlim_Dst = [1900, 2100]
 dimuon_M_xlim_jpsi = [3000, 3200]
 Dstpi_sel = muonSelection + "&& hadron_ProbNNpi > 0.2 && hadron_ProbNNk < 0.05 "
@@ -143,11 +143,11 @@ pid_branches = [
 ]
 
 friends = {
-    "MVAOutput": "mvaoutput",
-    "preselection": "preselection",
+    #"MVAOutput": "mvaoutput",
+    #"preselection": "preselection",
     "triggerselection": "triggerselection",
     #    "kinematicselection": "kinematicselection",
-    "pidselection": "pidselection",
-    "geometry": "geometry",
+    #"pidselection": "pidselection",
+    #"geometry": "geometry",
 }
 

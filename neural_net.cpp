@@ -267,127 +267,151 @@ constexpr double derivative_logistic_from_logistic(const double val)
 auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900); //make before creation of r to avert root segfault (magic!)
 
 
-// saves a histogram to a file
+// creates histograms and saves them to a file
 template<floating T>
-void create_histogram(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data)
+void create_histogram(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const std::size_t train_cutoff_index)
 {
   if (predictions.size() != data.size())
   {
-    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of precictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
+    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of predictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
 
     std::exit(1);
   }
 
-  const double fraction_background = static_cast<double>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; })) / static_cast<double>(data.size());
-
-  constexpr std::size_t bucket_count{1000};
-
-  std::array<std::array<double, 2>, bucket_count> histogram{};
-
-  for (std::size_t i = 0; i < predictions.size(); ++i)
-  {
-    const auto target = data[i][full_variable_count];
-
-    const auto bias = target ? fraction_background : 1 - fraction_background;
-
-    histogram[static_cast<std::size_t>(predictions[i] * bucket_count)][static_cast<std::size_t>(target)] += bias;
-  }
-
   TMultiGraph mgraph{name.c_str(), (name+";score;log(count)").c_str()};
 
-  auto signal_graph{std::make_unique<TGraph>()};
-  auto backgr_graph{std::make_unique<TGraph>()};
+  const std::array predictions_subs{predictions.subspan(0, train_cutoff_index), predictions.subspan(train_cutoff_index)};
+  const std::array        data_subs{       data.subspan(0, train_cutoff_index),        data.subspan(train_cutoff_index)};
 
-  signal_graph->SetLineColor(kBlue);
-  backgr_graph->SetLineColor(kRed);
-
-  for (std::size_t i = 0; i < histogram.size(); ++i)
+  for (std::size_t test = 0; test < 2; ++test)
   {
-    if (histogram[i][1])
-      signal_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][1]));
+    const double fraction_background = static_cast<double>(std::ranges::count_if(data_subs[test], [](const auto e){ return !e[full_variable_count]; })) / static_cast<double>(data_subs[test].size());
 
-    if (histogram[i][0])
-      backgr_graph->AddPoint(static_cast<double>(i) / static_cast<double>(histogram.size()), std::log10(histogram[i][0]));
+    constexpr std::size_t bucket_count{1000};
+
+    std::array<std::array<double, 2>, bucket_count> histogram{};
+
+    // accumulate points into histogram buckets
+    for (std::size_t i = 0; i < predictions_subs[test].size(); ++i)
+    {
+      const auto target = data_subs[test][i][full_variable_count];
+
+      const auto bias = target ? fraction_background : 1 - fraction_background;
+
+      histogram[static_cast<std::size_t>(predictions_subs[test][i] * bucket_count)][static_cast<std::size_t>(target)] += bias;
+    }
+
+    auto signal_graph{std::make_unique<TGraph>()};
+    auto backgr_graph{std::make_unique<TGraph>()};
+
+    if (test)
+    {
+      signal_graph->SetLineColor(kBlue);
+      backgr_graph->SetLineColor(kRed);
+    }
+
+    for (std::size_t i = 0; i < histogram.size(); ++i)
+    {
+      if (histogram[i][1])
+        signal_graph->AddPoint(static_cast<double>(i)     / static_cast<double>(histogram.size()),
+                               std::log10(histogram[i][1] / static_cast<double>(data_subs[test].size())));
+
+      if (histogram[i][0])
+        backgr_graph->AddPoint(static_cast<double>(i)     / static_cast<double>(histogram.size()),
+                               std::log10(histogram[i][0] / static_cast<double>(data_subs[test].size())));
+    }
+
+    mgraph.Add(signal_graph.release());
+    mgraph.Add(backgr_graph.release());
   }
-
-  mgraph.Add(signal_graph.release());
-  mgraph.Add(backgr_graph.release());
 
   mgraph.Draw("a");
 
   canvas->SaveAs(fmt::format("cache/{}.png", name).c_str());
 }
 
-// saves a ROC curve to a file
+// creates ROC curves and saves them to a file, along with AUC values
 template<floating T>
-void create_ROC_curve(const std::vector<T>& predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data)
+void create_ROC_curve(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const std::size_t train_cutoff_index)
 {
   if (predictions.size() != data.size())
   {
-    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of precictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
+    fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "sizes of predictions ({}) and data ({}) not equal\n", predictions.size(), data.size());
 
     std::exit(1);
   }
 
-  std::vector<T> background_predictions;
-  std::vector<T> signal_predictions;
+  const std::array predictions_subs{predictions.subspan(0, train_cutoff_index), predictions.subspan(train_cutoff_index)};
+  const std::array        data_subs{       data.subspan(0, train_cutoff_index),        data.subspan(train_cutoff_index)};
 
-  for (std::size_t i = 0; i < data.size(); ++i)
-    if (data[i][full_variable_count])
-      signal_predictions.emplace_back(predictions[i]);
-    else
-      background_predictions.emplace_back(predictions[i]);
+  // create and fill 4 vectors with background and signal predictions from the testing and training datasets
+  std::array<std::vector<T>, 2> background_predictions;
+  std::array<std::vector<T>, 2> signal_predictions;
 
-  const auto orig_signal_count{static_cast<double>(signal_predictions.size())};
-  const auto orig_background_count{static_cast<double>(background_predictions.size())};
+  for (std::size_t test = 0; test < 2; ++test)
+    for (std::size_t i = 0; i < data_subs[test].size(); ++i)
+      if (data_subs[test][i][full_variable_count])
+        signal_predictions[test].emplace_back(predictions_subs[test][i]);
+      else
+        background_predictions[test].emplace_back(predictions_subs[test][i]);
 
-  constexpr std::size_t point_count{10000};
+  std::array<double, 2> area{0, 0};
 
-  TMultiGraph mgraph{name.c_str(), (name+";False positive rate;True positive rate").c_str()};
+  TMultiGraph mgraph{name.c_str(), (name + ";False positive rate;True positive rate").c_str()};
 
   {
-    auto graph{std::make_unique<TGraph>()};
+    const std::array orig_signal_count    {static_cast<double>(    signal_predictions[0].size()), static_cast<double>(    signal_predictions[1].size())};
+    const std::array orig_background_count{static_cast<double>(background_predictions[0].size()), static_cast<double>(background_predictions[1].size())};
 
-    double area{0};
+    constexpr std::size_t point_count{10000};
 
-    double prev_signal    {1};
-    double prev_background{1};
+    std::array<double, 2> prev_signal    {1.0, 1.0};
+    std::array<double, 2> prev_background{1.0, 1.0};
+
+    std::array graph{std::make_unique<TGraph>(), std::make_unique<TGraph>()};
 
     for (std::size_t i = 1; i < point_count + 1; ++i)
     {
       const double cut = static_cast<double>(i) / point_count;
 
-      // maybe unparallelize? speedup is smaller than hoped for
-      //std::erase_if(signal_predictions,     [=](T v){ return v < cut; });
-      //std::erase_if(background_predictions, [=](T v){ return v < cut; });
-
       auto cutdown = [&](std::size_t j)
       {
-        if (j)
-          std::erase_if(signal_predictions,     [=](T v){ return v < cut; });
+        if (j / 2)
+          std::erase_if(signal_predictions    [j % 2], [=](T v){ return v < cut; });
         else
-          std::erase_if(background_predictions, [=](T v){ return v < cut; });
+          std::erase_if(background_predictions[j % 2], [=](T v){ return v < cut; });
       };
 
-      loop_threaded(cutdown, 2);
+      loop_threaded(cutdown, 4);
 
-      const double next_signal    {static_cast<double>(    signal_predictions.size()) /     orig_signal_count};
-      const double next_background{static_cast<double>(background_predictions.size()) / orig_background_count};
+      const std::array next_signal    {static_cast<double>(    signal_predictions[0].size()) /     orig_signal_count[0],
+                                       static_cast<double>(    signal_predictions[1].size()) /     orig_signal_count[1]};
+      const std::array next_background{static_cast<double>(background_predictions[0].size()) / orig_background_count[0],
+                                       static_cast<double>(background_predictions[1].size()) / orig_background_count[1]};
 
-      area += (prev_background - next_background) * (next_signal + prev_signal) / 2;
+      for (std::size_t test = 0; test < 2; ++test)
+      {
+        area[test] += (prev_background[test] - next_background[test]) * (next_signal[test] + prev_signal[test]) / 2;
 
-      prev_signal = next_signal;
-      prev_background = next_background;
+        prev_signal    [test]  = next_signal    [test];
+        prev_background[test]  = next_background[test];
+      }
 
-      graph->AddPoint(next_background, next_signal);
+      graph[0]->SetLineColor(kGray);
+
+      graph[0]->AddPoint(next_background[0], next_signal[0]);
+      graph[1]->AddPoint(next_background[1], next_signal[1]);
     }
 
-    {
-      auto latex = std::make_unique<TLatex>(0.5, 0.5, (std::string{"AUC = "} + std::to_string(area)).c_str());
-      graph->GetListOfFunctions()->Add(latex.release());
-    }
+    mgraph.Add(graph[0].release());
+    mgraph.Add(graph[1].release());
+  }
 
-    mgraph.Add(graph.release());
+  std::string label = fmt::format("#splitline{{AUC = {} (test)}}{{AUC = {} (train)}}", area[0], area[1]);
+
+  {
+    auto latex = std::make_unique<TLatex>(0.25, 0.5, label.c_str());
+    mgraph.GetListOfFunctions()->Add(latex.release());
   }
 
   mgraph.Draw("a");
@@ -446,7 +470,7 @@ int main()
 
   const std::size_t train_cutoff_index = (data.size() * 9) / 10;
 
-  std::vector<double> predictions(data.size() - train_cutoff_index);
+  std::vector<double> predictions(data.size());
 
   std::atomic<std::ptrdiff_t> reps{0};
 
@@ -464,9 +488,9 @@ int main()
     {
       if (!train)
       {
-        create_histogram(predictions, "log_predictions", std::span(data).subspan(train_cutoff_index));
+        create_histogram(std::span<const double>(predictions), "log_predictions", {data}, train_cutoff_index);
 
-        create_ROC_curve(predictions, "ROC_curve", std::span(data).subspan(train_cutoff_index));
+        create_ROC_curve(std::span<const double>(predictions), "ROC_curve",       {data}, train_cutoff_index);
       }
 
       char input;
@@ -539,7 +563,7 @@ int main()
         {
           r = reps.fetch_add(1, std::memory_order_relaxed);
 
-          index = train_cutoff_index + static_cast<std::size_t>(r);
+          index = static_cast<std::size_t>(r);
 
           if (index >= data.size())
             break;
@@ -610,7 +634,7 @@ int main()
                 updates[thread_no][i][j][k] += errors[i + 1][j] * nodes[i][k];
         }
         else // record the score given to this event
-          predictions[index - train_cutoff_index] = score;
+          predictions[index] = score;
       }
 
       sync_point.arrive_and_wait();

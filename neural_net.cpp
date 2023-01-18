@@ -154,14 +154,31 @@ void loop_threaded(auto func, const std::size_t n)
 
 using namespace std::literals;
 
-//constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OWNPV"sv, "h1_P"sv, "h1_PT"sv, "h2_P"sv, "h2_PT"sv, "Lres_FD_OWNPV"sv, "Jpsi_FD_OWNPV"sv, "Lres_TAUCHI2"sv, "Lb_IP_OWNPV"sv, "Jpsi_P"sv, "Jpsi_ENDVERTEX_CHI2"sv, "Lres_ENDVERTEX_CHI2"sv});
-constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OWNPV"sv, "h1_P"sv, "h1_PT"sv, "h2_P"sv, "h2_PT"sv, "Lres_FD_OWNPV"sv, "Jpsi_FD_OWNPV"sv, "Lres_TAUCHI2"sv, "Lb_IP_OWNPV"sv, "Jpsi_P"sv, "Jpsi_ENDVERTEX_CHI2"sv, "Lres_ENDVERTEX_CHI2"sv, "Lb_M"sv});
+constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OWNPV"sv, "h1_P"sv, "h1_PT"sv, "h2_P"sv, "h2_PT"sv, "Lres_FD_OWNPV"sv, "Jpsi_FD_OWNPV"sv, "Lres_TAUCHI2"sv, "Lb_IP_OWNPV"sv, "Jpsi_P"sv, "Jpsi_ENDVERTEX_CHI2"sv, "Lres_ENDVERTEX_CHI2"sv});
 
-constexpr std::size_t full_variable_count{variable_names.size()};
-constexpr std::size_t      variable_count{full_variable_count - 1};
+constexpr std::size_t variable_count{variable_names.size()};
 
 auto create_data()
 {
+  constexpr auto cut_only_variable_names = std::to_array<std::string_view>({"Lb_M", "Jpsi_M"});
+
+  constexpr auto all_variable_names = [&]
+  {
+    std::array<std::string_view, variable_count + cut_only_variable_names.size()> out;
+
+    std::size_t i{0};
+
+    for (; i < variable_count; ++i)
+      out[i] = variable_names[i];
+
+    for (; i < out.size(); ++i)
+      out[i] = cut_only_variable_names[i - variable_count];
+
+    return out;
+  }();
+
+  constexpr std::size_t full_variable_count{all_variable_names.size()};
+
   std::vector<std::array<double, full_variable_count + 1>> data{};
 
   // reads desired variables from a file, appending them to data, marking them with the given score (ie background or signal)
@@ -173,10 +190,10 @@ auto create_data()
 
     std::mutex resize_lock;
 
-    // reads in a single variable from the file to data, thread-safely enlarging data
+    // reads in a single variable from the file to data, thread-safely enlarging data as necessary
     auto read_variable = [&](std::size_t variable_index)
     {
-      auto variables{file.uncompress<double>(std::string(variable_names[variable_index]).c_str())};
+      auto variables{file.uncompress<double>(std::string(all_variable_names[variable_index]).c_str())};
 
       {
         std::scoped_lock lock(resize_lock);
@@ -187,12 +204,12 @@ auto create_data()
 
       if (old_size + variables.size() != data.size())
       {
-        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: Inconsistent variable counts in file {}. Previous count: {}. Variable count: {}. Expected total: {}. Variable: {}\n", file.get_path(), old_size, variables.size(), data.size(), variable_names[variable_index]);
+        fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: Inconsistent variable counts in file {}. Previous count: {}. Variable count: {}. Expected total: {}. Variable: {}\n", file.get_path(), old_size, variables.size(), data.size(), all_variable_names[variable_index]);
 
         std::exit(EXIT_FAILURE);
       }
 
-      fmt::print("read {} {} {} values\n", variables.size(), score ? "simulated" : "real", variable_names[variable_index]);
+      fmt::print("read {} {} {} values\n", variables.size(), score ? "simulated" : "real", all_variable_names[variable_index]);
 
       for (std::size_t i = 0; i < variables.size(); ++i)
       {
@@ -223,26 +240,45 @@ auto create_data()
   read_from_file({    "../data/Lb2pKmm_mgDn_2018.root"}, 0);
   read_from_file({"../data/Lb2pKmm_sim_mgDn_2018.root"}, 1);
 
-  std::erase_if(data, [](const auto e){ return (std::abs(e[full_variable_count - 1] - 5619.60) < 300.0 ) != e[full_variable_count]; });
+  std::erase_if(data, [](const auto e){ return (std::abs(e[variable_count] - 5619.60) < 300.0 ) != e[full_variable_count]; });
+
+  std::erase_if(data, [](const auto e)
+    { 
+      const double Jpsi_M = e[variable_count + 1];
+
+      const double q2 = pow<2>(Jpsi_M)/1000000.0;
+
+      return (q2 > 0.98 && q2 < 1.10) || (q2 > 8.0 && q2 < 11.0) || (q2 > 12.5 && q2 < 15.0);
+    });
 
   const auto real_count = static_cast<std::size_t>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; }));
 
-  std::ranges::shuffle(data, movency::random::prng_);
+  std::vector<std::array<double, variable_count + 1>> out{data.size()};
 
-  // normalizes a variable
+  // copies a variable from data to out, and normalizes it
   auto normalize_variable = [&](std::size_t variable_index)
   {
-    const double div = std::ranges::max(data, {}, [=](const auto e){ return e[variable_index]; })[variable_index];
+    if (variable_index == variable_count) // this is the score variable, so don't need to normalize and has special index
+    {
+      for (std::size_t i = 0; i < data.size(); ++i)
+        out[i][variable_count] = data[i][full_variable_count];
 
-    for (auto& e : data)
-      e[variable_index] /= div;
+      return;
+    }
+
+    const double div = std::ranges::max(data, {}, [=](const auto e){ return std::abs(e[variable_index]); })[variable_index];
+
+    for (std::size_t i = 0; i < data.size(); ++i)
+      out[i][variable_index] = data[i][variable_index] / div;
   };
 
-  loop_threaded(normalize_variable, variable_count);
+  loop_threaded(normalize_variable, variable_count + 1);
+
+  std::ranges::shuffle(out, movency::random::prng_);
 
   fmt::print("created data. {} real and {} simulated events\n", real_count, data.size() - real_count);
 
-  return std::pair(data, static_cast<double>(real_count) / static_cast<double>(data.size()));
+  return std::pair(out, static_cast<double>(real_count) / static_cast<double>(out.size()));
 }
 
 
@@ -269,7 +305,7 @@ auto canvas = std::make_unique<TCanvas>("canvas", "canvas", 3000, 1900); //make 
 
 // creates histograms and saves them to a file
 template<floating T>
-void create_histogram(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const std::size_t train_cutoff_index)
+void create_histogram(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, variable_count + 1>> data, const std::size_t train_cutoff_index)
 {
   if (predictions.size() != data.size())
   {
@@ -285,7 +321,7 @@ void create_histogram(const std::span<const T> predictions, const std::string na
 
   for (std::size_t test = 0; test < 2; ++test)
   {
-    const double fraction_background = static_cast<double>(std::ranges::count_if(data_subs[test], [](const auto e){ return !e[full_variable_count]; })) / static_cast<double>(data_subs[test].size());
+    const double fraction_background = static_cast<double>(std::ranges::count_if(data_subs[test], [](const auto e){ return !e[variable_count]; })) / static_cast<double>(data_subs[test].size());
 
     constexpr std::size_t bucket_count{1000};
 
@@ -294,7 +330,7 @@ void create_histogram(const std::span<const T> predictions, const std::string na
     // accumulate points into histogram buckets
     for (std::size_t i = 0; i < predictions_subs[test].size(); ++i)
     {
-      const auto target = data_subs[test][i][full_variable_count];
+      const auto target = data_subs[test][i][variable_count];
 
       const auto bias = target ? fraction_background : 1 - fraction_background;
 
@@ -332,7 +368,7 @@ void create_histogram(const std::span<const T> predictions, const std::string na
 
 // creates ROC curves and saves them to a file, along with AUC values
 template<floating T>
-void create_ROC_curve(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, full_variable_count + 1>> data, const std::size_t train_cutoff_index)
+void create_ROC_curve(const std::span<const T> predictions, const std::string name, const std::span<const std::array<T, variable_count + 1>> data, const std::size_t train_cutoff_index)
 {
   if (predictions.size() != data.size())
   {
@@ -350,7 +386,7 @@ void create_ROC_curve(const std::span<const T> predictions, const std::string na
 
   for (std::size_t test = 0; test < 2; ++test)
     for (std::size_t i = 0; i < data_subs[test].size(); ++i)
-      if (data_subs[test][i][full_variable_count])
+      if (data_subs[test][i][variable_count])
         signal_predictions[test].emplace_back(predictions_subs[test][i]);
       else
         background_predictions[test].emplace_back(predictions_subs[test][i]);
@@ -576,7 +612,7 @@ int main()
           nodes[0][i] = data[index][i];
           //fmt::print("*{} ", nodes[0][i]);
         }
-        //fmt::print("{}\n\n", data[index][full_variable_count]);
+        //fmt::print("{}\n\n", data[index][variable_count]);
 
         for (std::size_t i = 1; i < depth; ++i)
           for (std::size_t j = 0; j < variable_count; ++j)
@@ -603,7 +639,7 @@ int main()
         {
           // begin backpropagation of errors
 
-          const auto target = data[index][full_variable_count];
+          const auto target = data[index][variable_count];
 
           const auto bias = target ? fraction_background : fraction_signal;
 

@@ -19,13 +19,7 @@ plt.rc("text", usetex=True)
 #------Training Tools---------------------------------------------------------
 
 
-def train_xgb_classifier(X_train,
-                         X_test,
-                         y_train,
-                         y_test,
-                         sample_weight=None,
-                         sample_weight_eval_set=None,
-                         name=None):
+def train_xgb_classifier(X_train, X_test, y_train, y_test, name=None):
     """
     This function receives sets of training and testing data (eventually with event weights) and returns a xgboost classifier trained with the provided training data sample.
     @param X_train the training sample in pandas format
@@ -40,7 +34,7 @@ def train_xgb_classifier(X_train,
 
     xgb_param = {
         'max_depth': 2,
-        'eta': 0.7,
+        'eta': 0.6,
         #'gamma': 0.03,
         'subsample': 0.4,
         #'max_bin': 256,
@@ -125,8 +119,8 @@ def predict_and_save(model, X_test, X_train, columns, test_tree_output_name,
     df_test = ROOT.RDF.MakeNumpyDataFrame(X_test_dict)
 
     #save file
-    df_train.Snapshot('tree', f'{train_data_name}.root')
-    df_test.Snapshot('tree', f'{test_data_name}.root')
+    df_train.Snapshot('tree', f'../cache/XGB_data/{train_data_name}.root')
+    df_test.Snapshot('tree', f'../cache/XGB_data/{test_data_name}.root')
 
     return X_test, X_train
 

@@ -556,6 +556,21 @@ namespace root {
     }
 
 
+    template<class T>
+    std::size_t get_size(std::string_view id) const noexcept
+    {
+      const auto it = baskets_.find(id);
+
+      if (it == baskets_.end())
+      {
+        fmt::print("Unable to find baskets for: {}\n", id);
+        return {};
+      }
+
+      return it->second.total_bytes / sizeof(T);
+    }
+
+
     // uncompress all records for a matching Name
 
     template<class T>

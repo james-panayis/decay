@@ -158,9 +158,10 @@ constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OW
 
 constexpr std::size_t variable_count{variable_names.size()};
 
+//TODO: filter data before all has been read to avoid excessive memory usage????
 auto create_data()
 {
-  constexpr auto cut_only_variable_names = std::to_array<std::string_view>({"Lb_M", "Jpsi_M"});
+  constexpr auto cut_only_variable_names = std::to_array<std::string_view>({"Lb_M", "Lb_BKGCAT", "Jpsi_M"});
 
   constexpr auto all_variable_names = [&]
   {
@@ -193,7 +194,21 @@ auto create_data()
     // reads in a single variable from the file to data, thread-safely enlarging data as necessary
     auto read_variable = [&](std::size_t variable_index)
     {
-      auto variables{file.uncompress<double>(std::string(all_variable_names[variable_index]).c_str())};
+      const auto variables = [&]
+      {
+        if (all_variable_names[variable_index] != "Lb_BKGCAT")
+          return file.uncompress<double>(std::string(all_variable_names[variable_index]).c_str());
+
+        // Lb_BKGCAT is only present in sim files, and is not stored as doubles
+        if (score)
+        {
+          const auto temp = file.uncompress<int>(std::string(all_variable_names[variable_index]).c_str());
+
+          return std::vector<double>(temp.begin(), temp.end());
+        }
+        else
+          return std::vector<double>(file.get_size<double>(std::string(all_variable_names[0]).c_str()));
+      }();
 
       {
         std::scoped_lock lock(resize_lock);
@@ -244,12 +259,14 @@ auto create_data()
 
   std::erase_if(data, [](const auto e)
     { 
-      const double Jpsi_M = e[variable_count + 1];
+      const double Jpsi_M = e[variable_count + 2];
 
       const double q2 = pow<2>(Jpsi_M)/1000000.0;
 
       return (q2 > 0.98 && q2 < 1.10) || (q2 > 8.0 && q2 < 11.0) || (q2 > 12.5 && q2 < 15.0);
     });
+
+  std::erase_if(data, [](const auto e){ return e[variable_count + 1] != 0 && e[variable_count + 1] != 10 && e[variable_count + 1] != 50; });
 
   const auto real_count = static_cast<std::size_t>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; }));
 
@@ -314,7 +331,7 @@ void create_histogram(const std::span<const T> predictions, const std::string na
     std::exit(1);
   }
 
-  TMultiGraph mgraph{name.c_str(), (name+";score;log(count)").c_str()};
+  TMultiGraph mgraph{name.c_str(), (name+";score;log10(count)").c_str()};
 
   const std::array predictions_subs{predictions.subspan(0, train_cutoff_index), predictions.subspan(train_cutoff_index)};
   const std::array        data_subs{       data.subspan(0, train_cutoff_index),        data.subspan(train_cutoff_index)};

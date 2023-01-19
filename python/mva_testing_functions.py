@@ -11,7 +11,6 @@ from mva_plots import plot_roc_curve, makeHist, plot_2roc_curves, plot_3roc_curv
 # plt.rcParams['text.latex.preamble'] = [r'\usepackage{bm}']
 plt.rc("font", **{"family": "serif"})  # , "serif": ["Roman"]})
 plt.rc("text", usetex=True)
-import uproot
 
 
 ##########################################################################################
@@ -480,6 +479,9 @@ def TrainXGBs(Name, Years, polarities, input_columns, additional_columns,
             sig_chain = ROOT.TChain("tree")
             sig_chain.Add(sig_file_name)
 
+            #sig_file = uproot.open("sig_file_name")
+            #bkg_file = uproot.open("bkg_file_name")
+
             bkg_chain = ROOT.TChain("Lb_Tuple/DecayTree")
             bkg_chain.Add(bkg_file_name)
 
@@ -489,6 +491,7 @@ def TrainXGBs(Name, Years, polarities, input_columns, additional_columns,
                 sig_friend_chain.Add(sig_sel_name)
                 sig_chain.AddFriend(sig_friend_chain)
 
+            #sig_rdframe = ROOT.RDataFrame(sig_chain)
             sig_rdframe = ROOT.RDataFrame(sig_chain)
             sig_frame = pd.DataFrame(
                 data=sig_rdframe.Filter(sig_selection).AsNumpy(

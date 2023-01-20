@@ -158,12 +158,11 @@ constexpr auto variable_names = std::to_array<std::string_view>({"Lres_IPCHI2_OW
 
 constexpr std::size_t variable_count{variable_names.size()};
 
-//TODO: filter data before all has been read to avoid excessive memory usage????
-auto create_data()
+namespace filtering_variables // things involving variables not used in training are contained here
 {
   constexpr auto cut_only_variable_names = std::to_array<std::string_view>({"Lb_M", "Lb_BKGCAT", "Jpsi_M"});
 
-  constexpr auto all_variable_names = [&]
+  constexpr auto all_variable_names = []
   {
     std::array<std::string_view, variable_count + cut_only_variable_names.size()> out;
 
@@ -179,6 +178,23 @@ auto create_data()
   }();
 
   constexpr std::size_t full_variable_count{all_variable_names.size()};
+
+  // convert a variable name into an index into all_variable_names at compile time
+  consteval auto index (const std::string_view name)
+  {
+    auto it = std::ranges::find(all_variable_names, name);
+
+    if (it == all_variable_names.end())
+      throw "variable name not in all_variable_names";
+
+    return static_cast<std::size_t>(std::distance(all_variable_names.begin(), it));
+  };
+}
+
+//TODO: filter data before all has been read to avoid excessive memory usage????
+auto create_data()
+{
+  using namespace filtering_variables;
 
   std::vector<std::array<double, full_variable_count + 1>> data{};
 
@@ -196,7 +212,7 @@ auto create_data()
     {
       const auto variables = [&]
       {
-        if (all_variable_names[variable_index] != "Lb_BKGCAT")
+        if (variable_index != index("Lb_BKGCAT"))
           return file.uncompress<double>(std::string(all_variable_names[variable_index]).c_str());
 
         // Lb_BKGCAT is only present in sim files, and is not stored as doubles
@@ -255,18 +271,18 @@ auto create_data()
   read_from_file({    "../data/Lb2pKmm_mgDn_2018.root"}, 0);
   read_from_file({"../data/Lb2pKmm_sim_mgDn_2018.root"}, 1);
 
-  std::erase_if(data, [](const auto e){ return (std::abs(e[variable_count] - 5619.60) < 300.0 ) != e[full_variable_count]; });
+  std::erase_if(data, [](const auto e){ return (std::abs(e[index("Lb_M")] - 5619.60) < 300.0 ) != e[full_variable_count]; });
 
   std::erase_if(data, [](const auto e)
     { 
-      const double Jpsi_M = e[variable_count + 2];
+      const double Jpsi_M = e[index("Jpsi_M")];
 
       const double q2 = pow<2>(Jpsi_M)/1000000.0;
 
       return (q2 > 0.98 && q2 < 1.10) || (q2 > 8.0 && q2 < 11.0) || (q2 > 12.5 && q2 < 15.0);
     });
 
-  std::erase_if(data, [](const auto e){ return e[variable_count + 1] != 0 && e[variable_count + 1] != 10 && e[variable_count + 1] != 50; });
+  std::erase_if(data, [](const auto e){ return e[index("Lb_BKGCAT")] != 0 && e[index("Lb_BKGCAT")] != 10 && e[index("Lb_BKGCAT")] != 50; });
 
   const auto real_count = static_cast<std::size_t>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; }));
 

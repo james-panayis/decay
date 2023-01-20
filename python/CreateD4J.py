@@ -12,6 +12,8 @@ from mva_plots import plot_roc_curve, makeHist, plot_2roc_curves, plot_3roc_curv
 plt.rc("font", **{"family": "serif"})  # , "serif": ["Roman"]})
 plt.rc("text", usetex=True)
 
+print(xgb.__version__)
+
 name = "H"
 model_name = f"{name}.json"
 
@@ -77,14 +79,14 @@ columns = [
     "h2_OWNPV_Y",
     "mu1_OWNPV_Y",
     "mu2_OWNPV_Y",
-    "h1_PIDp",
-    "h2_PIDK",
-    "mu1_PIDmu",
-    "mu2_PIDmu",
-    "h1_ProbNNp",
-    "h2_ProbNNk",
-    "mu1_ProbNNmu",
-    "mu2_ProbNNmu",
+    #    "h1_PIDp",
+    #    "h2_PIDK",
+    #    "mu1_PIDmu",
+    #    "mu2_PIDmu",
+    #    "h1_ProbNNp",
+    #    "h2_ProbNNk",
+    #    "mu1_ProbNNmu",
+    #    "mu2_ProbNNmu",
 ]
 
 input_columns = [
@@ -158,13 +160,20 @@ data = ["Lb2pKmm"]
 years = [2016, 2017, 2018]
 polarities = ["Up", "Dn"]
 
-bkg_dataframe = list()
+#bkg_dataframe = list()
 bkg_events = 0
 
-sig_dataframe = list()
+#sig_dataframe = list()
 
 final_sig_dataframe = list()
 sig_events = 0
+
+cols = input_columns + selections + ["eventNumber"] + ["Lb_M"] + ["runNumber"]
+cols2 = input_columns + selections + ["eventNumber"] + ["Lb_M"] + ["year"] + [
+    "polarity"
+] + ["runNumber"]
+bkg_dataframe = pd.DataFrame(columns=cols2)
+sig_dataframe = pd.DataFrame(columns=cols2)
 
 for year in years:
     for polarity in polarities:
@@ -178,53 +187,111 @@ for year in years:
         sig_chain = ROOT.TChain("tree")
         sig_chain.Add(sig_file_name)
 
+        print('Created sig chain')
+
         #sig_file = uproot.open("sig_file_name")
         #bkg_file = uproot.open("bkg_file_name")
 
         bkg_chain = ROOT.TChain("Lb_Tuple/DecayTree")
         bkg_chain.Add(bkg_file_name)
 
+        print('Created bkg chain')
+
+        #for selection in selection_files:
+        #    sig_friend_chain = ROOT.TChain('tree')
+        #    sig_sel_name = f"../selections/{selection}_{sig_sample_name}.root"
+        #    sig_friend_chain.Add(sig_sel_name)
+        #    sig_chain.AddFriend(sig_friend_chain)
         for selection in selection_files:
-            sig_friend_chain = ROOT.TChain('tree')
+            print('Added selection', selection)
             sig_sel_name = f"../selections/{selection}_{sig_sample_name}.root"
-            sig_friend_chain.Add(sig_sel_name)
-            sig_chain.AddFriend(sig_friend_chain)
+            sig_chain.AddFriend('tree', sig_sel_name)
+
+        print('Added sig friends')
 
         #sig_rdframe = ROOT.RDataFrame(sig_chain)
         sig_rdframe = ROOT.RDataFrame(sig_chain)
-        sig_frame = pd.DataFrame(
-            data=sig_rdframe.Filter(sig_selection).AsNumpy(
-                columns + selections + ["eventNumber"] + ["Lb_M"]))
+
+        print('Made sig RDataFrame')
+
+        sig_rdfilter = sig_rdframe.Filter(sig_selection)
+        #        sig_tree = sig_rdfilter.Get(tree_name)
+
+        print('Made sig filtered RDataFrame')
+        sig_numpy = sig_rdfilter.AsNumpy(cols)
+
+        print('Made sig numpy array')
+
+        #sig_frame = pd.DataFrame(
+        #    data=sig_rdframe.Filter(sig_selection).AsNumpy(
+        # columns + selections + ["eventNumber"] + ["Lb_M"]))
+        sig_frame = pd.DataFrame(data=sig_numpy)
+
+        print('Made sig pd frame')
 
         for selection in selection_files:
-            bkg_friend_chain = ROOT.TChain('tree')
+            print('Added selection', selection)
             bkg_sel_name = f"../selections/{selection}_{bkg_sample_name}.root"
-            bkg_friend_chain.Add(bkg_sel_name)
-            bkg_chain.AddFriend(bkg_friend_chain)
+            bkg_chain.AddFriend('tree', bkg_sel_name)
 
+        print('Added bkg friends')
+
+        #bkg_rdframe = ROOT.RDataFrame(bkg_chain)
         bkg_rdframe = ROOT.RDataFrame(bkg_chain)
-        bkg_frame = pd.DataFrame(
-            data=bkg_rdframe.Filter(bkg_selection).AsNumpy(
-                columns + selections + ["eventNumber"] + ["Lb_M"]))
+
+        print('Made bkg RDataFrame')
+
+        bkg_rdfilter = bkg_rdframe.Filter(bkg_selection)
+        #        bkg_tree = bkg_rdfilter.Get(tree_name)
+
+        print('Made bkg filtered RDataFrame')
+        cols = columns + selections + ["eventNumber"] + ["Lb_M"]
+        bkg_numpy = bkg_rdfilter.AsNumpy(cols)
+
+        bkg_frame = pd.DataFrame(data=bkg_numpy)
+
+        print('Made bkg dataframe')
+
+        #        for selection in selection_files:
+        #            print( 'Added selection', selection )
+        #            #bkg_friend_chain = ROOT.TChain('tree')
+        #            bkg_sel_name = f"../selections/{selection}_{bkg_sample_name}.root"
+        #            #bkg_friend_chain.Add(bkg_sel_name)
+        #            bkg_chain.AddFriend('tree', bkg_sel_name)
+        #
+        #        print( 'Added bkg friends' )
+        #
+        #        bkg_rdframe = ROOT.RDataFrame(bkg_chain)
+        #        print( 'Made bkg RDataFrame' )
+        #
+        #        bkg_frame = pd.DataFrame(
+        #            data=bkg_rdframe.Filter(bkg_selection).AsNumpy(
+        #                columns + selections + ["eventNumber"] + ["Lb_M"]))
+        #
+        #        print( 'Made bkg data frame' )
 
         bkg_frame["year"] = year
         if polarity == "Up":
             bkg_frame["polarity"] = 1
         else:
             bkg_frame["polarity"] = 0
-        bkg_dataframe.append(bkg_frame)
 
         sig_frame["year"] = year
         if polarity == "Up":
             sig_frame["polarity"] = 1
         else:
             sig_frame["polarity"] = 0
-        sig_dataframe.append(sig_frame)
 
         print(f"ADDED {year} {polarity}")
 
-bkg_dataframe = pd.concat(bkg_dataframe, sort=False, ignore_index=True)
-sig_dataframe = pd.concat(sig_dataframe, sort=False, ignore_index=True)
+        bkg_dataframe = pd.concat([bkg_dataframe, bkg_frame],
+                                  sort=False,
+                                  ignore_index=True)
+        sig_dataframe = pd.concat([sig_dataframe, sig_frame],
+                                  sort=False,
+                                  ignore_index=True)
+
+print('Concatenated files')
 
 #sample_name = "Lb2pKmm_sim_mgUp_2016"
 #sample_file_name = cd.samples[sample_name]["ntuples"]
@@ -266,17 +333,20 @@ bkg_prediction = model.predict_proba(
 
 #Make new data array
 sim_data = {
-    "event": sig_dataframe["eventNumber"],
+    "eventNumber": sig_dataframe["eventNumber"],
+    "runNumber": sig_dataframe["runNumber"],
     "Lb_M": sig_dataframe["Lb_M"],
     "xgb_output": sig_prediction[:, 1],
-    "h1_PIDp": sig_dataframe["h1_PIDp"],
-    "h2_PIDK": sig_dataframe["h2_PIDK"],
-    "mu1_PIDmu": sig_dataframe["mu1_PIDmu"],
-    "mu2_PIDmu": sig_dataframe["mu2_PIDmu"],
-    "h1_ProbNNp": sig_dataframe["h1_ProbNNp"],
-    "h2_ProbNNk": sig_dataframe["h2_ProbNNk"],
-    "mu1_ProbNNmu": sig_dataframe["mu1_ProbNNmu"],
-    "mu2_ProbNNmu": sig_dataframe["mu2_ProbNNmu"]
+    "year": sig_dataframe["year"],
+    "polarity": sig_dataframe["polarity"]
+    #    "h1_PIDp": sig_dataframe["h1_PIDp"],
+    #    "h2_PIDK": sig_dataframe["h2_PIDK"],
+    #    "mu1_PIDmu": sig_dataframe["mu1_PIDmu"],
+    #    "mu2_PIDmu": sig_dataframe["mu2_PIDmu"],
+    #    "h1_ProbNNp": sig_dataframe["h1_ProbNNp"],
+    #    "h2_ProbNNk": sig_dataframe["h2_ProbNNk"],
+    #    "mu1_ProbNNmu": sig_dataframe["mu1_ProbNNmu"],
+    #    "mu2_ProbNNmu": sig_dataframe["mu2_ProbNNmu"]
 }
 output = pd.DataFrame(sim_data)
 
@@ -288,16 +358,19 @@ df_output.Snapshot('tree', f'../cache/D4J/Sim_{name}_D4J.root')
 
 real_data = {
     "event": bkg_dataframe["eventNumber"],
+    "runNumber": bkg_dataframe["runNumber"],
     "Lb_M": bkg_dataframe["Lb_M"],
     "xgb_output": bkg_prediction[:, 1],
-    "h1_PIDp": bkg_dataframe["h1_PIDp"],
-    "h2_PIDK": bkg_dataframe["h2_PIDK"],
-    "mu1_PIDmu": bkg_dataframe["mu1_PIDmu"],
-    "mu2_PIDmu": bkg_dataframe["mu2_PIDmu"],
-    "h1_ProbNNp": bkg_dataframe["h1_ProbNNp"],
-    "h2_ProbNNk": bkg_dataframe["h2_ProbNNk"],
-    "mu1_ProbNNmu": bkg_dataframe["mu1_ProbNNmu"],
-    "mu2_ProbNNmu": bkg_dataframe["mu2_ProbNNmu"]
+    "year": bkg_dataframe["year"],
+    "polarity": bkg_dataframe["polarity"]
+    #    "h1_PIDp": bkg_dataframe["h1_PIDp"],
+    #    "h2_PIDK": bkg_dataframe["h2_PIDK"],
+    #    "mu1_PIDmu": bkg_dataframe["mu1_PIDmu"],
+    #    "mu2_PIDmu": bkg_dataframe["mu2_PIDmu"],
+    #    "h1_ProbNNp": bkg_dataframe["h1_ProbNNp"],
+    #    "h2_ProbNNk": bkg_dataframe["h2_ProbNNk"],
+    #    "mu1_ProbNNmu": bkg_dataframe["mu1_ProbNNmu"],
+    #    "mu2_ProbNNmu": bkg_dataframe["mu2_ProbNNmu"]
 }
 real_output = pd.DataFrame(real_data)
 

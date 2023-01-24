@@ -66,20 +66,8 @@ int main()
 {
   ROOT::EnableImplicitMT();
 
-  const std::string outfilename = "cache/mass.root";
-
-  const auto output_file = std::make_unique<TFile>(outfilename.c_str(), "RECREATE");
+  const auto output_file = std::make_unique<TFile>("cache/mass.root", "RECREATE");
   const auto output_tree = std::make_unique<TTree>("tree", "tree");
-
-  const std::string infilename  = "../data/Lb2pKmm_mgUp_2018_UID.root";
-  const std::string intreename  = "tree";
-
-  const auto input_file = std::make_unique<TFile>(infilename.c_str());
-  const auto input_tree = std::shared_ptr<TTree>(dynamic_cast<TTree*>(input_file->Get(intreename.c_str())));
-
-  const auto entry_count = input_tree->GetEntries();
-
-  fmt::print("Using {} entries from tree \"{}\" in file \"{}\"\n", entry_count, input_tree->GetName(), input_file->GetName());
 
   std::array<std::array<std::array<std::array<double, preds_count>, preds_count>, preds_count>, preds_count> vals;
 
@@ -87,66 +75,109 @@ int main()
   {
     const auto name = fmt::format("{}_{}_{}_{}", names[ap], names[bp], names[cp], names[dp]);
 
-    output_tree->Branch(name.c_str(), &vals[ap][bp][cp][dp], fmt::format("{}{}", name, "/D").c_str());
+    output_tree->Branch(name.c_str(), &vals[ap][bp][cp][dp], (name + "/D").c_str());
   });
 
-  input_tree->SetBranchStatus("*", false); // default all branches to not be read
+  bool propagate_uid{true};
 
-  const std::array<Particle, 4> particles{{
-    {"h1" , input_tree}, // p
-    {"h2" , input_tree}, // K
-    {"mu1", input_tree}, // mu
-    {"mu2", input_tree}  // mu
-  }};
-
-  // Propagate UID variable to output file if present in input file
-
-  //std::int64_t uid;
   Long64_t uid;
 
+  constexpr std::array infilenames = std::to_array({"../data/Lb2pKmm_mgUp_2016_UID.root",
+                                                    "../data/Lb2pKmm_mgDn_2016_UID.root",
+                                                    "../data/Lb2pKmm_mgUp_2017_UID.root",
+                                                    "../data/Lb2pKmm_mgDn_2017_UID.root",
+                                                    "../data/Lb2pKmm_mgUp_2018_UID.root",
+                                                    "../data/Lb2pKmm_mgDn_2018_UID.root"});
+
+  for (std::size_t f = 0; f < infilenames.size(); ++f)
   {
-    auto found = std::make_unique<std::uint32_t>();
+    const auto input_file = std::make_unique<TFile>(infilenames[f]);
+    const auto input_tree = std::shared_ptr<TTree>(dynamic_cast<TTree*>(input_file->Get("tree")));
 
-    input_tree->SetBranchStatus("UID", true, found.get());
-
-    if (*found)
+    if (input_tree.get() == nullptr)
     {
-      output_tree->Branch("UID", &uid, "UID/L");
+      fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: file {} contains no tree called \"tree\"\n", input_file->GetName());
 
-      input_tree->SetBranchAddress("UID", &uid);
+      return EXIT_FAILURE;
     }
+
+    const auto entry_count = input_tree->GetEntries();
+
+    fmt::print("Using {} entries from tree \"{}\" in file \"{}\"\n", entry_count, input_tree->GetName(), input_file->GetName());
+
+    input_tree->SetBranchStatus("*", false); // default all branches to not be read
+
+    const std::array<Particle, 4> particles{{
+      {"h1" , input_tree}, // p
+      {"h2" , input_tree}, // K
+      {"mu1", input_tree}, // mu
+      {"mu2", input_tree}  // mu
+    }};
+
+    // Propagate UID variable to output file if present in input files
+    if (propagate_uid)
+    {
+      auto found = std::make_unique<std::uint32_t>();
+
+      input_tree->SetBranchStatus("UID", true, found.get());
+
+      if (*found)
+      {
+        input_tree->SetBranchAddress("UID", &uid);
+
+        if (f == 0)
+          output_tree->Branch("UID", &uid, "UID/L");
+      }
+      else
+      {
+        if (f == 0)
+        {
+          propagate_uid = false;
+
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow), "WARNING: No UIDs found in first input file {}, so none will be present in output file.\n", input_file->GetName());
+        }
+        else
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::red), "ERROR: No UIDs found in input file {}, though previous input files did contain UIDs\n", input_file->GetName());
+
+          return EXIT_FAILURE;
+        }
+      }
+    }
+
+    for (std::int64_t i = 0; i < entry_count; ++i)
+    {
+      if (i % 10'000 == 0 && i)
+        fmt::print("Working on entry {}/{} ({}% completed)\n", i, entry_count, static_cast<double>(i) / static_cast<double>(entry_count) * 100.0);
+
+      input_tree->GetEntry(i);
+
+      const auto hypotheses = [&]
+      {
+        std::array<std::array<ROOT::Math::XYZTVector, preds_count>, 4> out;
+
+        for (std::uint32_t p = 0; p < 4; ++p)
+          for (std::uint32_t m = 0; m < preds_count; ++m)
+            if (m == 0)
+              out[p][m] = ROOT::Math::XYZTVector{};
+            else
+              out[p][m] = particles[p].getHypothesis(masses[m]);
+
+        return out;
+      }();
+
+      for_all_recombinations([&](const std::uint32_t ap, const std::uint32_t bp, const std::uint32_t cp, const std::uint32_t dp)
+      {
+        vals[ap][bp][cp][dp] = (hypotheses[0][ap] + hypotheses[1][bp] + hypotheses[2][cp] + hypotheses[3][dp]).M();
+      });
+
+      output_tree->Fill();
+    }
+
+    fmt::print("Finished with input file {}\n\n", input_file->GetName());
   }
 
-  for (std::int64_t i = 0; i < entry_count; ++i)
-  {
-    if (i % 5'000 == 0 && i)
-      fmt::print("Working on entry {}/{} ({}% completed)\n", i, entry_count, static_cast<double>(i) / static_cast<double>(entry_count) * 100.0);
-
-    input_tree->GetEntry(i);
-
-    const auto hypotheses = [&]
-    {
-      std::array<std::array<ROOT::Math::XYZTVector, preds_count>, 4> out;
-
-      for (std::uint32_t p = 0; p < 4; ++p)
-        for (std::uint32_t m = 0; m < preds_count; ++m)
-          if (m == 0)
-            out[p][m] = ROOT::Math::XYZTVector{};
-          else
-            out[p][m] = particles[p].getHypothesis(masses[m]);
-
-      return out;
-    }();
-
-    for_all_recombinations([&](const std::uint32_t ap, const std::uint32_t bp, const std::uint32_t cp, const std::uint32_t dp)
-    {
-      vals[ap][bp][cp][dp] = (hypotheses[0][ap] + hypotheses[1][bp] + hypotheses[2][cp] + hypotheses[3][dp]).M();
-    });
-
-    output_tree->Fill();
-  }
-
-  fmt::print("Created file \"{}\" with {} entries in tree \"{}\"\n", output_file->GetName(), output_tree->GetEntries(), output_tree->GetName());
+  fmt::print(fg(fmt::color::green), "Created file \"{}\" with {} entries in tree \"{}\"\n", output_file->GetName(), output_tree->GetEntries(), output_tree->GetName());
 
   output_file->cd();
   output_tree->Write();

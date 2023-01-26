@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.append("../common")
 import common_definitions as cd
+import plot_utils as pu
 import matplotlib as plt
 #plt.rcParams['text.latex.preamble'] = [r'\usepackage{bm}']
 plt.rc("font", **{"family": "serif"})  # , "serif": ["Roman"]})
@@ -66,59 +67,37 @@ data = ROOT.RooDataSet(
 
 model.fitTo(data)
 
+# residuals
+#res_frame = data.plotOn(Lb_M.frame(100), ROOT.RooFit.DataError(ROOT.RooAbsData.SumW2),ROOT.RooFit.Name("Lb_M"))
+
 data.plotOn(Lb_Mframe)
 model.plotOn(Lb_Mframe)
 model.Print("t")
 
+#data.plotOn(res_frame)
+
+#Lb_Mframe.Draw()
+#res_frame.Draw()
+
+c = ROOT.TCanvas("rf101_basics", "rf101_basics", 800, 400)
+ROOT.gPad.SetLeftMargin(0.15)
+Lb_Mframe.GetYaxis().SetTitleOffset(1.6)
+Lb_Mframe.Draw()
+ROOT.gPad.SetLeftMargin(0.15)
 Lb_Mframe.Draw()
 
-#xframe2 = x.frame(Title = "Gaussian pdf with data")
-#data.plotOn(xframe2)
-#gauss.plotOn(xframe2)
-#
-#gauss.fitTo(data)
-#mean.Print()
-#sigma.Print()
-#c = ROOT.TCanvas("rf101_basics", "rf101_basics", 800, 400)
-#c.Divide(2)
-#c.cd(1)
-#ROOT.gPad.SetLeftMargin(0.15)
-#xframe.GetYaxis().SetTitleOffset(1.6)
-#xframe.Draw()
-#c.cd(2)
-#ROOT.gPad.SetLeftMargin(0.15)
-#xframe2.GetYaxis().SetTitleOffset(1.6)
-#xframe2.Draw()
-#
 #c.SaveAs("rf101_basics.png")
 #
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#def makedata(tree, xgb_cut_val, lb, ub, bins):
-#    cut_string = f"xgb_output > {xgb_cut_val}"
-#    xmin = lb
-#    xmax = ub
-#    bins = bins
-#
-#    hist_data = ROOT.TH1F("hist_data", "hist_data", bins, xmin, xmax)
-#
-#    tree.fill("Lb_M >> hist_data", cut_string, "")
-#
-#    return hist_data
-#
-#
-#
-#
-#
-#
-#
-#
+bins = 100
+res_frame = data.plotOn(
+    Lb_M.frame(bins), ROOT.RooFit.DataError(ROOT.RooAbsData.SumW2),
+    ROOT.RooFit.Name("res"))
+model.plotOn(res_frame, ROOT.RooFit.LineStyle(ROOT.kDotted),
+             ROOT.RooFit.LineColor(ROOT.kGreen + 3), ROOT.RooFit.LineWidth(4),
+             ROOT.RooFit.Name("pdf"))
+
+Lb_Mframe.Print()
+dots = res_frame.getHist('res')
+curve = res_frame.getCurve('pdf')
+pu.plotWithResiduals(Lb_M, dots, curve, '', '', False, False, None, None, None,
+                     None, Lb_Mframe, 'model')

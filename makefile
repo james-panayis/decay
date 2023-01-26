@@ -11,8 +11,10 @@ LIBS="external/libs/libfmt.a" "external/libs/libz.a" `root-config --libs`
 
 OPT=-O3 -fomit-frame-pointer -flto=auto
 
-DBG=-Og -g -fsanitize=address,undefined -static-libasan
-#DBG=-Og -g -fsanitize=address,undefined -static-libasan -fanalyzer
+DBG=-O3 -g -fomit-frame-pointer -flto=auto -fsanitize=address,undefined -static-libasan
+#DBG=-Og -g
+
+HPPS=root.hpp particlefromtree.hpp threading.hpp
 
 .PHONY: clean
 
@@ -29,7 +31,7 @@ define prepare =
 		echo "sourcing root (you may want to source it to avoid this happening everytime)"
 		source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_102b x86_64-centos7-gcc12-opt
 		if [ $$? -ne 0 ]; then
-			echo "root source attempt failed. aborting."
+			echo "cvmfs source attempt failed. aborting."
 			exit 1
 		fi
 	fi
@@ -38,7 +40,7 @@ define prepare =
 		echo "sourcing root to get g++11.3 or later (you may want to source it to avoid this happening everytime)"
 		source /cvmfs/sft.cern.ch/lcg/views/setupViews.sh LCG_102b x86_64-centos7-gcc12-opt
 		if [ $$? -ne 0 ]; then
-			echo "root source attempt failed. aborting."
+			echo "cvmfs source attempt failed. aborting."
 			exit 1
 		fi
 	fi
@@ -46,12 +48,12 @@ endef
 
 #if [[ "$${HOSTNAME: -14}" = ".warwick.ac.uk" ]] || [[ "$${HOSTNAME: -8}" = ".cern.ch" ]]; then
 
-cache/%.out: %.cpp makefile $(ext)
+cache/%.out: %.cpp makefile $(HPPS) $(ext)
 	$(prepare)
 	echo "compiling $<"
 	$(CC) $(OPT) $(FLAGS) $< $(LIBS) -o $@
 
-debug%.out: %.cpp makefile $(ext)
+debug%.out: %.cpp makefile $(HPPS) $(ext)
 	$(prepare)
 	out=$@
 	echo "compiling debug build of $<"

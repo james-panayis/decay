@@ -144,63 +144,85 @@ auto create_data()
     fmt::print("\n");
   };
 
+  // TODO: parallelize across these too?
   /*
-  read_from_file({    "../data/Lb2pKmm_mgUp_2016.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgUp_2016.root"}, 1);
-  read_from_file({    "../data/Lb2pKmm_mgDn_2016.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgDn_2016.root"}, 1);
-  read_from_file({    "../data/Lb2pKmm_mgUp_2017.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgUp_2017.root"}, 1);
-  read_from_file({    "../data/Lb2pKmm_mgDn_2017.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgDn_2017.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgUp_2016_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2016_UID.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2016_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2016_UID.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgUp_2017_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2017_UID.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2017_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2017_UID.root"}, 1);
   */
-  read_from_file({    "../data/Lb2pKmm_mgUp_2018.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgUp_2018.root"}, 1);
-  read_from_file({    "../data/Lb2pKmm_mgDn_2018.root"}, 0);
-  read_from_file({"../data/Lb2pKmm_sim_mgDn_2018.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgUp_2018_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgUp_2018_UID.root"}, 1);
+  read_from_file({    "../data/Lb2pKmm_mgDn_2018_UID.root"}, 0);
+  read_from_file({"../data/Lb2pKmm_sim_mgDn_2018_UID.root"}, 1);
 
-  std::erase_if(data, [](const auto e){ return (std::abs(e[index("Lb_M")] - 5619.60) < 300.0 ) != e[full_variable_count]; });
+  fmt::print("filtering\n");
 
   std::erase_if(data, [](const auto e)
-    { 
-      const double Jpsi_M = e[index("Jpsi_M")];
-
-      const double q2 = pow<2>(Jpsi_M)/1000000.0;
+    {
+      const double q2 = pow<2>(e[index("Jpsi_M")])/1000000.0;
 
       return (q2 > 0.98 && q2 < 1.10) || (q2 > 8.0 && q2 < 11.0) || (q2 > 12.5 && q2 < 15.0);
     });
 
   std::erase_if(data, [](const auto e){ return e[index("Lb_BKGCAT")] != 0 && e[index("Lb_BKGCAT")] != 10 && e[index("Lb_BKGCAT")] != 50; });
 
-  const auto real_count = static_cast<std::size_t>(std::ranges::count_if(data, [](const auto e){ return !e[full_variable_count]; }));
+  fmt::print("normalizing\n");
 
-  std::vector<std::array<double, variable_count + 1>> out{data.size()};
-
-  // copies a variable from data to out, and normalizes it
-  auto normalize_variable = [&](std::size_t variable_index)
+  auto normalize_variable = [&](const std::size_t variable_index)
   {
-    if (variable_index == variable_count) // this is the score variable, so don't need to normalize and has special index
-    {
-      for (std::size_t i = 0; i < data.size(); ++i)
-        out[i][variable_count] = data[i][full_variable_count];
-
-      return;
-    }
-
     const double div = std::ranges::max(data, {}, [=](const auto e){ return std::abs(e[variable_index]); })[variable_index];
 
-    for (std::size_t i = 0; i < data.size(); ++i)
-      out[i][variable_index] = data[i][variable_index] / div;
+    for (auto& event : data)
+      event[variable_index] = event[variable_index] / div;
   };
 
-  loop_threaded(normalize_variable, variable_count + 1);
+  loop_threaded(normalize_variable, variable_count); // Note this doesn't affect the extra variables (like Lb_M)
 
-  std::ranges::shuffle(out, movency::random::prng_);
+  fmt::print("splitting\n");
 
-  fmt::print("created data. {} real and {} simulated events\n", real_count, data.size() - real_count);
+  std::vector<std::array<double, variable_count + 1>> training_data{};
+  std::vector<std::array<double, variable_count    >>     real_data{};
 
-  return std::pair(out, static_cast<double>(real_count) / static_cast<double>(out.size()));
+  for (const auto& event : data)
+  {
+    if ((std::abs(event[index("Lb_M")] - 5619.60) < 300.0 ) == event[full_variable_count])
+    {
+      training_data.emplace_back();
+
+      for (std::size_t i = 0; i < variable_count; ++i)
+        training_data.back()[i] = event[i];
+
+      training_data.back()[variable_count] = event[full_variable_count];
+    }
+
+    if (!event[full_variable_count])
+    {
+      real_data.emplace_back();
+
+      for (std::size_t i = 0; i < variable_count; ++i)
+        real_data.back()[i] = event[i];
+    }
+  }
+
+  fmt::print("tr: {}, re: {}\n", training_data.size(), real_data.size());
+
+  const auto real_count = static_cast<std::size_t>(std::ranges::count_if(training_data, [](const auto e){ return !e[variable_count]; }));
+
+  fmt::print("shuffling\n");
+
+  std::ranges::shuffle(training_data, movency::random::prng_);
+  std::ranges::shuffle(    real_data, movency::random::prng_);
+
+  fmt::print("created data. {} real and {} simulated events\n", real_count, training_data.size() - real_count);
+
+  return std::pair(training_data, static_cast<double>(real_count) / static_cast<double>(training_data.size()));
 }
+
 
 
 constexpr double logistic(const double val)

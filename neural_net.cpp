@@ -356,7 +356,7 @@ void create_ROC_curve(const std::span<const T> predictions, const std::string na
       auto cutdown = [&](std::size_t j)
       {
         if (j / 2)
-          std::erase_if(signal_predictions    [j % 2], [=](T v){ return v < cut; });
+          std::erase_if(    signal_predictions[j % 2], [=](T v){ return v < cut; });
         else
           std::erase_if(background_predictions[j % 2], [=](T v){ return v < cut; });
       };
@@ -386,7 +386,7 @@ void create_ROC_curve(const std::span<const T> predictions, const std::string na
     mgraph.Add(graph[1].release());
   }
 
-  std::string label = fmt::format("#splitline{{AUC = {} (test)}}{{AUC = {} (train)}}", area[0], area[1]);
+  std::string label = fmt::format("#splitline{{AUC = {} (test)}}{{AUC = {} (train)}}", area[1], area[0]);
 
   {
     auto latex = std::make_unique<TLatex>(0.25, 0.5, label.c_str());
@@ -397,6 +397,12 @@ void create_ROC_curve(const std::span<const T> predictions, const std::string na
 
   canvas->SaveAs(fmt::format("cache/{}.png", name).c_str());
 }
+
+//  applies the NN to the real data and produces a graph
+[[deprecated("Not deprecated, just not yet implemented")]] void create_mass_graph(const double cutoff)
+{
+}
+
 
 // prints a 3D network of connections
 template<class T>
@@ -444,6 +450,7 @@ int main()
   }();
 
   bool train{true};
+  bool mass_graph{false};
 
   std::vector<decltype(connections)> updates(thread_count);
 
@@ -467,16 +474,44 @@ int main()
     {
       if (!train)
       {
-        create_histogram(std::span<const double>(predictions), "log_predictions", {data}, train_cutoff_index);
+        if (mass_graph)
+        {
+          while (true)
+          {
+            mass_graph = false;
 
-        create_ROC_curve(std::span<const double>(predictions), "ROC_curve",       {data}, train_cutoff_index);
+            double cutoff;
+
+            fmt::print("\ninput cutoff: ");
+            std::cin >> cutoff;
+
+            create_mass_graph(cutoff);
+
+            char input;
+
+            fmt::print("Draw a new graph with a different cutoff? [y/N] ");
+
+            std::cin >> input;
+
+            if (input != 'y' && input != 'Y')
+              break;
+          }
+        }
+        else
+        {
+          create_histogram(std::span<const double>(predictions), "log_predictions", {data}, train_cutoff_index);
+
+          create_ROC_curve(std::span<const double>(predictions), "ROC_curve",       {data}, train_cutoff_index);
+        }
       }
+
+      train = false;
 
       char input;
 
       while (true)
       {
-        fmt::print("Input: Print current connections, perform a tEst, or tRain for an optional number of iterations? ");
+        fmt::print("input: Print, tEst, Output, tRain, or Info? ");
 
         std::cin >> input;
 
@@ -486,9 +521,20 @@ int main()
 
           continue;
         }
+        else if (input == 'I')
+        {
+          fmt::print("\nPrint current connections,\nperform a tEst on the test dataset and produce prediction and ROC graphs,\ngenerate Output by applying to the full real dataset and creating a Lb-mass graph using an optional cutoff,\nor tRain for an optional number of iterations,\ndisplay this Information text in the console?\n\n");
+
+          continue;
+        }
         else if (input == 'E')
         {
-          train = false;
+          reps = 0;
+        }
+        else if (input == 'O') //TODO
+        {
+          fmt::print(fmt::emphasis::bold | fg(fmt::color::yellow), "This doesn't do anything yet\n");
+          mass_graph = true;
 
           reps = 0;
         }
